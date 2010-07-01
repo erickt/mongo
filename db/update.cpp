@@ -298,6 +298,10 @@ namespace mongo {
             break;
         }
 
+        case NOOP: {
+            break;
+        }
+
         default:
             stringstream ss;
             ss << "Mod::apply can't handle type: " << op;
@@ -401,6 +405,10 @@ namespace mongo {
                     }
                     mss->amIInPlacePossible( found );
                 }
+                break;
+            }
+
+            case Mod::NOOP: {
                 break;
             }
                 
@@ -641,6 +649,7 @@ namespace mongo {
        { $pushAll: { a:[77,88] } }
        { $pull: { a:66 } }
        { $pullAll : { a:[99,1010] } }
+       { $noop: 1 }
        NOTE: MODIFIES source from object!
     */
     ModSet::ModSet(
@@ -654,40 +663,44 @@ namespace mongo {
         while ( it.more() ) {
             BSONElement e = it.next();
             const char *fn = e.fieldName();
-            
-            uassert( 10147 ,  "Invalid modifier specified " + string( fn ), e.type() == Object );
-            BSONObj j = e.embeddedObject();
-            DEBUGUPDATE( "\t" << j );
-            
-            BSONObjIterator jt(j);
             Mod::Op op = opFromStr( fn );
 
-            while ( jt.more() ) {
-                BSONElement f = jt.next(); // x:44
+            if ( op == Mod::NOOP ) {
+                uassert( 10160 ,  "Modifier $noop allowed for null only " + string ( fn ), e.isNull() );
+            } else {
+                uassert( 10147 ,  "Invalid modifier specified " + string( fn ), e.type() == Object );
+                BSONObj j = e.embeddedObject();
+                DEBUGUPDATE( "\t" << j );
+            
+                BSONObjIterator jt(j);
 
-                const char * fieldName = f.fieldName();
+                while ( jt.more() ) {
+                    BSONElement f = jt.next(); // x:44
 
-                uassert( 10148 ,  "Mod on _id not allowed", strcmp( fieldName, "_id" ) != 0 );
-                uassert( 10149 ,  "Invalid mod field name, may not end in a period", fieldName[ strlen( fieldName ) - 1 ] != '.' );
-                uassert( 10150 ,  "Field name duplication not allowed with modifiers", ! haveModForField( fieldName ) );
-                uassert( 10151 ,  "have conflicting mods in update" , ! haveConflictingMod( fieldName ) );
-                uassert( 10152 ,  "Modifier $inc allowed for numbers only", f.isNumber() || op != Mod::INC );
-                uassert( 10153 ,  "Modifier $pushAll/pullAll allowed for arrays only", f.type() == Array || ( op != Mod::PUSH_ALL && op != Mod::PULL_ALL ) );
+                    const char * fieldName = f.fieldName();
+
+                    uassert( 10148 ,  "Mod on _id not allowed", strcmp( fieldName, "_id" ) != 0 );
+                    uassert( 10149 ,  "Invalid mod field name, may not end in a period", fieldName[ strlen( fieldName ) - 1 ] != '.' );
+                    uassert( 10150 ,  "Field name duplication not allowed with modifiers", ! haveModForField( fieldName ) );
+                    uassert( 10151 ,  "have conflicting mods in update" , ! haveConflictingMod( fieldName ) );
+                    uassert( 10152 ,  "Modifier $inc allowed for numbers only", f.isNumber() || op != Mod::INC );
+                    uassert( 10153 ,  "Modifier $pushAll/pullAll allowed for arrays only", f.type() == Array || ( op != Mod::PUSH_ALL && op != Mod::PULL_ALL ) );
                 
-                _hasDynamicArray = _hasDynamicArray || strstr( fieldName , ".$" ) > 0;
+                    _hasDynamicArray = _hasDynamicArray || strstr( fieldName , ".$" ) > 0;
                 
-                Mod m;
-                m.init( op , f );
-                m.setFieldName( f.fieldName() );
+                    Mod m;
+                    m.init( op , f );
+                    m.setFieldName( f.fieldName() );
                 
-                if ( m.isIndexed( idxKeys ) ||
-                    (backgroundKeys && m.isIndexed(*backgroundKeys)) ) {
-                    _isIndexed++;
+                    if ( m.isIndexed( idxKeys ) ||
+                        (backgroundKeys && m.isIndexed(*backgroundKeys)) ) {
+                        _isIndexed++;
+                    }
+
+                    _mods[m.fieldName] = m;
+
+                    DEBUGUPDATE( "\t\t " << fieldName << "\t" << m.fieldName << "\t" << _hasDynamicArray );
                 }
-
-                _mods[m.fieldName] = m;
-
-                DEBUGUPDATE( "\t\t " << fieldName << "\t" << m.fieldName << "\t" << _hasDynamicArray );
             }
         }
 

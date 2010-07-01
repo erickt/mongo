@@ -33,7 +33,7 @@ namespace mongo {
     struct Mod {
         // See opFromStr below
         //        0    1    2     3         4     5          6    7      8       9       10    11
-        enum Op { INC, SET, PUSH, PUSH_ALL, PULL, PULL_ALL , POP, UNSET, BITAND, BITOR , BIT , ADDTOSET  } op;
+        enum Op { INC, SET, PUSH, PUSH_ALL, PULL, PULL_ALL , POP, UNSET, BITAND, BITOR , BIT , ADDTOSET, NOOP  } op;
         
         static const char* modNames[];
         static unsigned modNamesNum;
@@ -295,6 +295,11 @@ namespace mongo {
                     
                 }
             }
+            case 'n': {
+                if ( fn[2] == 'o' && fn[3] == 'o' && fn[4] == 'p' && fn[5] == 0 )
+                    return Mod::NOOP;
+                break;
+            }
             default: break;
             }
             uassert( 10161 ,  "Invalid modifier specified " + string( fn ), false );
@@ -498,7 +503,8 @@ namespace mongo {
             case Mod::UNSET:
             case Mod::PULL:
             case Mod::PULL_ALL:
-                // no-op b/c unset/pull of nothing does nothing
+            case Mod::NOOP:
+                // no-op b/c unset/pull/noop of nothing does nothing
                 break;
                 
             case Mod::INC:

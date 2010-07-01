@@ -129,6 +129,12 @@ namespace UpdateTests {
         }
     };
 
+    class Noop : public Fail {
+        void doIt() {
+            update( ns(), BSONObj(), fromjson( "{$noop:1}" ) );
+        }
+    };
+
     class SetBase : public ClientBase {
     public:
         ~SetBase() {
@@ -759,6 +765,21 @@ namespace UpdateTests {
             }
         };
 
+        class noop : public Base {
+        public:
+            const char * ns(){
+                return "unittests.noop";
+            }
+            void dotest(){
+                insert( ns() , BSON( "a" << 1 ) );
+                update( ns() , BSON( "a" << 1 ) , fromjson( "{$noop:null}" ), true );
+                ASSERT_EQUALS( 1, client().findOne( ns(), BSON( "a" << 1 ) ).getField( "a" ).Int() );
+
+                update( ns() , BSON( "a" << 2 ) , fromjson( "{$noop:null}" ), true );
+                ASSERT_EQUALS( 1, client().findOne( ns(), BSON( "a" << 1 ) ).getField( "a" ).Int() );
+            }
+        };
+
 
     };
     
@@ -776,6 +797,7 @@ namespace UpdateTests {
             add< PushAllNonArray >();
             add< PullAllNonArray >();
             add< IncTargetNonNumber >();
+            add< Noop >();
             add< SetNum >();
             add< SetString >();
             add< SetStringDifferentLength >();
@@ -830,6 +852,7 @@ namespace UpdateTests {
             add< basic::bit1 >();
             add< basic::unset >();
             add< basic::setswitchint >();
+            add< basic::noop >();
         }
     } myall;
 
