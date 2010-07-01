@@ -33,6 +33,48 @@ namespace mongo {
 #pragma warning( disable : 4355 )
 #endif
 
+    template<typename T>
+    class BSONFieldValue {
+    public:
+        BSONFieldValue( const string& name , const T& t ){
+            _name = name;
+            _t = t;
+        }
+
+        const T& value() const { return _t; }
+        const string& name() const { return _name; }
+
+    private:
+        string _name;
+        T _t;
+    };
+
+    template<typename T>
+    class BSONField {
+    public:
+        BSONField( const string& name , const string& longName="" ) 
+            : _name(name), _longName(longName){}
+        const string& name() const { return _name; }
+        operator string() const { return _name; }
+
+        BSONFieldValue<T> make( const T& t ) const {
+            return BSONFieldValue<T>( _name , t );
+        }
+
+        BSONFieldValue<BSONObj> gt( const T& t ) const { return query( "$gt" , t ); }
+        BSONFieldValue<BSONObj> lt( const T& t ) const { return query( "$lt" , t ); }
+
+        BSONFieldValue<BSONObj> query( const char * q , const T& t ) const;
+        
+        BSONFieldValue<T> operator()( const T& t ) const {
+            return BSONFieldValue<T>( _name , t );
+        }
+        
+    private:
+        string _name;
+        string _longName;
+    };
+
     /** Utility for creating a BSONObj.
         See also the BSON() and BSON_ARRAY() macros.
     */
@@ -53,8 +95,9 @@ namespace mongo {
         }
 
         ~BSONObjBuilder(){
-            if ( _b.buf() && _buf.getSize() == 0 )
+            if ( !_doneCalled && _b.buf() && _buf.getSize() == 0 ){
                 _done();
+            }
         }
 
         /** add all the fields from the object specified to this object */
@@ -309,17 +352,21 @@ namespace mongo {
             _b.append(code);
             return *this;
         }
-        /** Append a string element */
-        BSONObjBuilder& append(const char *fieldName, const char *str) {
+        /** Append a string element. len DOES include terminating nul */
+        BSONObjBuilder& append(const char *fieldName, const char *str, int len) {
             _b.append((char) String);
             _b.append(fieldName);
-            _b.append((int) strlen(str)+1);
-            _b.append(str);
+            _b.append((int)len);
+            _b.append(str, len);
             return *this;
         }
         /** Append a string element */
+        BSONObjBuilder& append(const char *fieldName, const char *str) {
+            return append(fieldName, str, (int) strlen(str)+1);
+        }
+        /** Append a string element */
         BSONObjBuilder& append(const char *fieldName, string str) {
-            return append(fieldName, str.c_str());
+            return append(fieldName, str.c_str(), (int) str.size()+1);
         }
         BSONObjBuilder& appendSymbol(const char *fieldName, const char *symbol) {
             _b.append((char) Symbol);
@@ -525,6 +572,19 @@ namespace mongo {
             massert( 10336 ,  "No subobject started", _s.subobjStarted() );
             return _s << l;
         }
+
+        template<typename T>
+        BSONObjBuilderValueStream& operator<<( const BSONField<T>& f ) {
+            _s.endField( f.name().c_str() );
+            return _s;
+        } 
+
+        template<typename T>
+        BSONObjBuilder& operator<<( const BSONFieldValue<T>& v ) {
+            append( v.name().c_str() , v.value() );
+            return *this;
+        } 
+        
 
         /** @return true if we are using our own bufbuilder, and not an alternate that was given to us in our constructor */
         bool owned() const { return &_b == &_buf; }

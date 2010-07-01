@@ -46,7 +46,7 @@ namespace mongo {
                 bool ok = false;
                 try { 
                     int theirVersion = -1000;
-                    ok = requestHeartbeat(cfg._id, i->h.toString(), res, -1, theirVersion); 
+                    ok = requestHeartbeat(cfg._id, i->h.toString(), res, -1, theirVersion, true); 
                     if( theirVersion >= cfg.version ) { 
                         stringstream ss;
                         ss << "replSet member " << i->h.toString() << " has too new a config version (" << theirVersion << ") to reconfigure";
@@ -64,6 +64,8 @@ namespace mongo {
                 uasserted(13145, "set names do not match with: " + i->h.toString());
             if( *res.getStringField("set") )
                 uasserted(13256, "member " + i->h.toString() + " is already initiated");
+            bool hasData = res["hasData"].Bool();
+            uassert(13311, "member " + i->h.toString() + " has data already, cannot initiate set.  All members except initiator must be empty.", !hasData);
         }
     }
 
@@ -78,7 +80,7 @@ namespace mongo {
         virtual bool run(const string& , BSONObj& cmdObj, string& errmsg, BSONObjBuilder& result, bool fromRepl) {
             log() << "replSet replSetInitiate admin command received from client" << rsLog;
 
-            if( 0 ) {
+            if( 1 ) {
                 // just make sure we can get a write lock before doing anything else.  we'll reacquire one 
                 // later.  of course it could be stuck then, but this check lowers the risk if weird things 
                 // are up.
@@ -106,7 +108,7 @@ namespace mongo {
             }
             if( ReplSet::startupStatus != ReplSet::EMPTYCONFIG ) {
                 result.append("startupStatus", ReplSet::startupStatus);
-                result.append("startupStatusMsg", ReplSet::startupStatusMsg);
+                //result.append("startupStatusMsg", ReplSet::startupStatusMsg);
                 errmsg = "all members and seeds must be reachable to initiate set";
                 result.append("info", cmdLine.replSet);
                 return false;
@@ -126,7 +128,8 @@ namespace mongo {
 
                 log() << "replSet replSetInitiate all members seem up" << rsLog;
 
-                newConfig.saveConfigLocally();
+                bo comment = BSON( "msg" << "initiating set");
+                newConfig.saveConfigLocally(comment);
             }
             catch( DBException& e ) { 
                 log() << "replSet replSetInitiate exception: " << e.what() << rsLog;

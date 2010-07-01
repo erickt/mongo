@@ -240,11 +240,6 @@
     </ClInclude>
   </ItemGroup>
   <ItemGroup>
-    <ResourceCompile Include="..\db\db.rc">
-      <Filter>misc and third party</Filter>
-    </ResourceCompile>
-  </ItemGroup>
-  <ItemGroup>
     <Library Include="..\..\js\js64r.lib">
       <Filter>misc and third party</Filter>
     </Library>
@@ -386,9 +381,6 @@
       <Filter>db\cpp</Filter>
     </ClCompile>
     <ClCompile Include="..\db\index.cpp">
-      <Filter>db\cpp</Filter>
-    </ClCompile>
-    <ClCompile Include="..\db\index_geo2d.cpp">
       <Filter>db\cpp</Filter>
     </ClCompile>
     <ClCompile Include="..\db\indexkey.cpp">
@@ -642,6 +634,15 @@
     </ClCompile>
     <ClCompile Include="..\s\d_writeback.cpp">
       <Filter>shard</Filter>
+    </ClCompile>
+    <ClCompile Include="..\s\d_state.cpp">
+      <Filter>shard</Filter>
+    </ClCompile>
+    <ClCompile Include="..\db\geo\2d.cpp">
+      <Filter>db\cpp</Filter>
+    </ClCompile>
+    <ClCompile Include="..\db\geo\quadrant_search.cpp">
+      <Filter>db\cpp</Filter>
     </ClCompile>
   </ItemGroup>
   <ItemGroup>

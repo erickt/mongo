@@ -267,7 +267,7 @@ namespace mongo {
 
         string _replSetOplog(string parms) { 
             stringstream s;
-            string t = "Replica Set oplog for host : " + hostname();
+            string t = "View replica set member oplog";
             s << start(t);
             s << p(t);
 
@@ -413,7 +413,7 @@ namespace mongo {
         {
             if ( url.size() > 1 ) {
 
-                if ( ! allowed( rq , headers, from ) ){
+                if ( ! allowed( rq , headers, from ) || url == "/favicon.ico" ) {
                     responseCode = 401;
                     headers.push_back( "Content-Type: text/plain" );
                     responseMsg = "not allowed\n";
@@ -485,6 +485,7 @@ namespace mongo {
                     }
                 }
 
+                DEV log() << "handle REST request " << url << endl;
                 handleRESTRequest( rq , url , responseMsg , responseCode , headers );
                 return;
             }

@@ -62,6 +62,8 @@ namespace mongo {
 
 #if defined(_WIN32)
     std::wstring windowsServiceName = L"MongoDB";
+    std::wstring windowsServiceUser = L"";
+    std::wstring windowsServicePassword = L"";
 #endif
 
     void setupSignals();
@@ -173,6 +175,7 @@ namespace mongo {
         //testTheDb();
         log() << "waiting for connections on port " << port << endl;
         OurListener l(bind_ip, port);
+        l.setAsTimeTracker();
         startReplication();
         if ( !noHttpInterface )
             boost::thread thr(webServerThread);
@@ -471,7 +474,12 @@ sendmore:
     public:
         string name() { return "DataFileSync"; }
         void run(){
-            log(1) << "will flush memory every: " << _sleepsecs << " seconds" << endl;
+            if( _sleepsecs == 0 )
+                log() << "warning: --syncdelay 0 is not recommended and can have strange performance" << endl;
+            else if( _sleepsecs == 1 ) 
+                log() << "--syncdelay 1" << endl;
+            else if( _sleepsecs != 60 )
+                log(1) << "--syncdelay " << _sleepsecs << endl;
             int time_flushing = 0;
             while ( ! inShutdown() ){
                 if ( _sleepsecs == 0 ){
@@ -688,7 +696,7 @@ int main(int argc, char* argv[], char *envp[] )
         ("upgrade", "upgrade db if needed")
         ("repair", "run repair on all dbs")
         ("notablescan", "do not allow table scans")
-        ("syncdelay",po::value<double>(&dataFileSync._sleepsecs)->default_value(60), "seconds between disk syncs (0 for never)")
+        ("syncdelay",po::value<double>(&dataFileSync._sleepsecs)->default_value(60), "seconds between disk syncs (0=never, but not recommended)")
         ("profile",po::value<int>(), "0=off 1=slow, 2=all")
         ("slowms",po::value<int>(&cmdLine.slowMS)->default_value(100), "value of slow for profile and console log" )
         ("maxConns",po::value<int>(), "max number of simultaneous connections")
@@ -699,10 +707,13 @@ int main(int argc, char* argv[], char *envp[] )
         ;
 	#if defined(_WIN32)
     windows_scm_options.add_options()
-		("install", "install mongodb service")
+        ("install", "install mongodb service")
         ("remove", "remove mongodb service")
+        ("reinstall", "reinstall mongodb service (equivilant of mongod --remove followed by mongod --install)")
         ("service", "start mongodb service")
         ("serviceName", po::value<string>(), "windows service name")
+        ("serviceUser", po::value<string>(), "user name service executes as")
+        ("servicePassword", po::value<string>(), "password used to authenticate serviceUser")
 		;
 	#endif
 
@@ -765,6 +776,7 @@ int main(int argc, char* argv[], char *envp[] )
     {
         bool installService = false;
         bool removeService = false;
+        bool reinstallService = false;
         bool startService = false;
         po::variables_map params;
         
@@ -869,6 +881,9 @@ int main(int argc, char* argv[], char *envp[] )
         if (params.count("remove")) {
             removeService = true;
         }
+        if (params.count("reinstall")) {
+            reinstallService = true;
+        }
         if (params.count("service")) {
             startService = true;
         }
@@ -963,8 +978,23 @@ int main(int argc, char* argv[], char *envp[] )
         if (params.count("serviceName")){
             string x = params["serviceName"].as<string>();
             windowsServiceName = wstring(x.size(),L' ');
-            for ( size_t i=0; i<x.size(); i++)
+            for ( size_t i=0; i<x.size(); i++) {
                 windowsServiceName[i] = x[i];
+	    }
+        }
+        if (params.count("serviceUser")){
+            string x = params["serviceUser"].as<string>();
+            windowsServiceUser = wstring(x.size(),L' ');
+            for ( size_t i=0; i<x.size(); i++) {
+                windowsServiceUser[i] = x[i];
+	    }
+        }
+        if (params.count("servicePassword")){
+            string x = params["servicePassword"].as<string>();
+            windowsServicePassword = wstring(x.size(),L' ');
+            for ( size_t i=0; i<x.size(); i++) {
+                windowsServicePassword[i] = x[i];
+	    }
         }
         #endif
 
@@ -1011,8 +1041,11 @@ int main(int argc, char* argv[], char *envp[] )
         }
 
 #if defined(_WIN32)
-        if ( installService ) {
-            if ( !ServiceController::installService( windowsServiceName , L"Mongo DB", L"Mongo DB Server", argc, argv ) )
+        if ( reinstallService ) {
+            ServiceController::removeService( windowsServiceName );
+	}
+	if ( installService || reinstallService ) {
+            if ( !ServiceController::installService( windowsServiceName , L"Mongo DB", L"Mongo DB Server", windowsServiceUser, windowsServicePassword, argc, argv ) )
                 dbexit( EXIT_NTSERVICE_ERROR );
             dbexit( EXIT_CLEAN );
         }

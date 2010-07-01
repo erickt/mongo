@@ -45,6 +45,8 @@ namespace mongo {
     const int portRecvFlags = 0;
 #endif
 
+    const Listener* Listener::_timeTracker;
+
     vector<SockAddr> ipToAddrs(const char* ips, int port){
         vector<SockAddr> out;
         if (*ips == '\0'){
@@ -107,7 +109,7 @@ namespace mongo {
                     }
                 }
 #endif
-            }else if (me.getType() == AF_INET6){
+            } else if (me.getType() == AF_INET6) {
                 // IPv6 can also accept IPv4 connections as mapped addresses (::ffff:127.0.0.1)
                 // That causes a conflict if we don't do set it to IPV6_ONLY
                 const int one = 1;
@@ -139,6 +141,7 @@ namespace mongo {
         }
 
         static long connNumber = 0;
+        struct timeval maxSelectTime;
         while ( ! inShutdown() ) {
             fd_set fds[1];
             FD_ZERO(fds);
@@ -147,12 +150,17 @@ namespace mongo {
                 FD_SET(*it, fds);
             }
 
-            const int ret = select(maxfd+1, fds, NULL, NULL, NULL);
+            maxSelectTime.tv_sec = 0;
+            maxSelectTime.tv_usec = 10000;
+            const int ret = select(maxfd+1, fds, NULL, NULL, &maxSelectTime);
+            
             if (ret == 0){
-                log() << "select() returned 0" << endl;
+                _elapsedTime += maxSelectTime.tv_usec / 1000;
                 continue;
             }
-            else if (ret < 0){
+            _elapsedTime += ret; // assume 1ms to grab connection. very rough
+            
+            if (ret < 0){
                 int x = errno;
 #ifdef EINTR
                 if ( x == EINTR ){

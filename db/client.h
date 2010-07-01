@@ -29,9 +29,11 @@
 #include "namespace.h"
 #include "lasterror.h"
 #include "stats/top.h"
-#include "repl/rs.h"
+//#include "repl/rs.h"
 
 namespace mongo { 
+
+    extern class ReplSet *theReplSet;
 
     class AuthenticationInfo;
     class Database;
@@ -46,7 +48,7 @@ namespace mongo {
         static mongo::mutex clientsMutex;
         static set<Client*> clients; // always be in clientsMutex when manipulating this
 
-        static int recommendedYieldMicros();
+        static int recommendedYieldMicros( int * writers = 0 , int * readers = 0 );
 
         class GodScope {
             bool _prev;
@@ -81,16 +83,16 @@ namespace mongo {
         public:
             Context(const string& ns, string path=dbpath, mongolock * lock = 0 , bool doauth=true ) 
                 : _client( currentClient.get() ) , _oldContext( _client->_context ) , 
-                  _path( path ) , _lock( lock ) ,
-                  _ns( ns ){
+                  _path( path ) , _lock( lock ) , 
+                  _ns( ns ), _db(0){
                 _finishInit( doauth );
             }
             
             /* this version saves the context but doesn't yet set the new one: */
-
+            
             Context() 
                 : _client( currentClient.get() ) , _oldContext( _client->_context ), 
-                  _path( dbpath ) , _lock(0) , _justCreated(false){
+                  _path( dbpath ) , _lock(0) , _justCreated(false), _db(0){
                 _client->_context = this;
                 clear();
             }

@@ -45,4 +45,18 @@ for ( var i=0; i<10; i++ ){
     assert.eq( 7 , s2.getDB( "test" ).foo.find().toArray().length , "other B " + i );
 }
 
+hashes = []
+
+for ( i=0; i<3; i++ ){
+    print( i );
+    s._connections[i].getDB( "config" ).chunks.find( {} , { lastmod : 1 } ).forEach( printjsononeline );
+    hashes[i] = s._connections[i].getDB( "config" ).runCommand( "dbhash" );
+}
+
+printjson( hashes );
+
+for ( i=1; i<hashes.length; i++ ){
+    assert.eq( hashes[0].md5  , hashes[i].md5 , "hashes different" );
+}
+
 s.stop();

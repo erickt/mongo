@@ -39,6 +39,11 @@ namespace mongo {
     string ShardNS::mongos = "config.mongos";
     string ShardNS::settings = "config.settings";
 
+    BSONField<bool>      ShardFields::draining("draining");
+    BSONField<long long> ShardFields::maxSize ("maxSize");
+    BSONField<long long> ShardFields::currSize("currSize");
+
+
     /* --- DBConfig --- */
 
     string DBConfig::modelServer() {
@@ -481,6 +486,8 @@ namespace mongo {
         
         // indexes
         conn->ensureIndex( ShardNS::chunk , BSON( "ns" << 1 << "min" << 1 ) , true );
+        conn->ensureIndex( ShardNS::chunk , BSON( "ns" << 1 << "shard" << 1 << "min" << 1 ) , true );
+        conn->ensureIndex( ShardNS::chunk , BSON( "ns" << 1 << "lastmod" << 1 ) , true );
         conn->ensureIndex( ShardNS::shard , BSON( "host" << 1 ) , true );
 
         conn.done();
@@ -516,12 +523,11 @@ namespace mongo {
         stringstream id;
         id << ourHostname << "-" << terseCurrentTime() << "-" << num++;
 
-        conn->insert( "config.changelog" , BSON( "_id" << id.str() << 
-                                                 "server" << ourHostname <<
-                                                 "time" << DATENOW <<
-                                                 "what" << what <<
-                                                 "ns" << ns << 
-                                                 "details" << detail ) );
+        BSONObj msg = BSON( "_id" << id.str() << "server" << ourHostname << "time" << DATENOW <<
+                            "what" << what << "ns" << ns << "details" << detail );
+        log() << msg << endl;
+        conn->insert( "config.changelog" , msg );
+        
         conn.done();
     }
 

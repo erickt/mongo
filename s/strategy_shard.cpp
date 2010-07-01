@@ -44,14 +44,12 @@ namespace mongo {
             
             Query query( q.query );
 
-            vector<shared_ptr<ChunkRange> > shards;
-            info->getChunksForQuery( shards , query.getFilter()  );
+            set<Shard> shards;
+            info->getShardsForQuery( shards , query.getFilter()  );
             
             set<ServerAndQuery> servers;
-            for ( vector<shared_ptr<ChunkRange> >::iterator i = shards.begin(); i != shards.end(); i++ ){
-                shared_ptr<ChunkRange> c = *i;
-                //servers.insert( ServerAndQuery( c->getShard() , BSONObj() ) );
-                servers.insert( ServerAndQuery( c->getShard().getConnString() , c->getFilter() ) );
+            for ( set<Shard>::iterator i = shards.begin(); i != shards.end(); i++ ){
+                servers.insert( ServerAndQuery( i->getConnString() , BSONObj() ) ); 
             }
             
             if ( logLevel > 4 ){
@@ -69,24 +67,10 @@ namespace mongo {
             BSONObj sort = query.getSort();
             
             if ( sort.isEmpty() ){
-                // 1. no sort, can just hit them in serial
                 cursor = new SerialServerClusteredCursor( servers , q );
             }
             else {
-                int shardKeyOrder = info->getShardKey().canOrder( sort );
-                if ( shardKeyOrder ){
-                    // 2. sort on shard key, can do in serial intelligently
-                    set<ServerAndQuery> buckets;
-                    for ( vector<shared_ptr<ChunkRange> >::iterator i = shards.begin(); i != shards.end(); i++ ){
-                        shared_ptr<ChunkRange> s = *i;
-                        buckets.insert( ServerAndQuery( s->getShard().getConnString() , s->getFilter() , s->getMin() ) );
-                    }
-                    cursor = new SerialServerClusteredCursor( buckets , q , shardKeyOrder );
-                }
-                else {
-                    // 3. sort on non-sharded key, pull back a portion from each server and iterate slowly
-                    cursor = new ParallelSortClusteredCursor( servers , q , sort );
-                }
+                cursor = new ParallelSortClusteredCursor( servers , q , sort );
             }
 
             assert( cursor );
@@ -219,15 +203,10 @@ namespace mongo {
             }
             
             if ( multi ){
-                vector<shared_ptr<ChunkRange> > chunks;
-                manager->getChunksForQuery( chunks , chunkFinder );
-                set<Shard> seen;
-                for ( vector<shared_ptr<ChunkRange> >::iterator i=chunks.begin(); i!=chunks.end(); i++){
-                    shared_ptr<ChunkRange> c = *i;
-                    if ( seen.count( c->getShard() ) )
-                        continue;
-                    doWrite( dbUpdate , r , c->getShard() );
-                    seen.insert( c->getShard() );
+                set<Shard> shards;
+                manager->getShardsForQuery( shards , chunkFinder );
+                for ( set<Shard>::iterator i=shards.begin(); i!=shards.end(); i++){
+                    doWrite( dbUpdate , r , *i );
                 }
             }
             else {
@@ -246,24 +225,19 @@ namespace mongo {
             uassert( 10203 ,  "bad delete message" , d.moreJSObjs() );
             BSONObj pattern = d.nextJsObj();
 
-            vector<shared_ptr<ChunkRange> > chunks;
-            manager->getChunksForQuery( chunks , pattern );
-            log(2) << "delete : " << pattern << " \t " << chunks.size() << " justOne: " << justOne << endl;
-            if ( chunks.size() == 1 ){
-                doWrite( dbDelete , r , chunks[0]->getShard() );
+            set<Shard> shards;
+            manager->getShardsForQuery( shards , pattern );
+            log(2) << "delete : " << pattern << " \t " << shards.size() << " justOne: " << justOne << endl;
+            if ( shards.size() == 1 ){
+                doWrite( dbDelete , r , *shards.begin() );
                 return;
             }
             
             if ( justOne && ! pattern.hasField( "_id" ) )
                 throw UserException( 8015 , "can only delete with a non-shard key pattern if can delete as many as we find" );
             
-            set<Shard> seen;
-            for ( vector<shared_ptr<ChunkRange> >::iterator i=chunks.begin(); i!=chunks.end(); i++){
-                shared_ptr<ChunkRange> c = *i;
-                if ( seen.count( c->getShard() ) )
-                    continue;
-                seen.insert( c->getShard() );
-                doWrite( dbDelete , r , c->getShard() );
+            for ( set<Shard>::iterator i=shards.begin(); i!=shards.end(); i++){
+                doWrite( dbDelete , r , *i );
             }
         }
         

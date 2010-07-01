@@ -110,6 +110,13 @@ namespace mongo {
            supports "." notation to reach into embedded objects
         */
         BSONElement getFieldDotted(const char *name) const;
+        /** return has eoo() true if no match
+           supports "." notation to reach into embedded objects
+        */
+        BSONElement getFieldDotted(const string& name) const {
+            return getFieldDotted( name.c_str() );
+        }
+
         /** Like getFieldDotted(), but expands multikey arrays and returns all matching objects
          */
         void getFieldsDotted(const char *name, BSONElementSet &ret ) const;
@@ -237,7 +244,11 @@ namespace mongo {
         int woCompare(const BSONObj& r, const BSONObj &ordering = BSONObj(),
                       bool considerFieldName=true) const;
         
-        int woSortOrder( const BSONObj& r , const BSONObj& sortKey ) const;
+
+        /**
+         * @param useDotted whether to treat sort key fields as possibly dotted and expand into them
+         */
+        int woSortOrder( const BSONObj& r , const BSONObj& sortKey , bool useDotted=false ) const;
 
         /** This is "shallow equality" -- ints and doubles won't match.  for a
            deep equality test use woCompare (which is slower).

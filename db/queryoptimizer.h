@@ -125,13 +125,13 @@ namespace mongo {
         bool complete() const { return _complete; }
         bool error() const { return _error; }
         bool stopRequested() const { return _stopRequested; }
-        string exceptionMessage() const { return _exceptionMessage; }
+        ExceptionInfo exception() const { return _exception; }
         const QueryPlan &qp() const { return *_qp; }
         // To be called by QueryPlanSet::Runner only.
         void setQueryPlan( const QueryPlan *qp ) { _qp = qp; }
-        void setExceptionMessage( const string &exceptionMessage ) {
+        void setException( const DBException &e ) {
             _error = true;
-            _exceptionMessage = exceptionMessage;
+            _exception = e.getInfo();
         }
         shared_ptr< CoveredIndexMatcher > matcher() const { return _matcher; }
     protected:
@@ -151,7 +151,7 @@ namespace mongo {
     private:
         bool _complete;
         bool _stopRequested;
-        string _exceptionMessage;
+        ExceptionInfo _exception;
         const QueryPlan *_qp;
         bool _error;
         shared_ptr< CoveredIndexMatcher > _matcher;
@@ -175,7 +175,8 @@ namespace mongo {
                      const BSONElement *hint = 0,
                      bool honorRecordedPlan = true,
                      const BSONObj &min = BSONObj(),
-                     const BSONObj &max = BSONObj() );
+                     const BSONObj &max = BSONObj(),
+                     bool bestGuessOnly = false );
         int nPlans() const { return plans_.size(); }
         shared_ptr< QueryOp > runOp( QueryOp &op );
         template< class T >
@@ -185,7 +186,6 @@ namespace mongo {
         BSONObj explain() const;
         bool usingPrerecordedPlan() const { return usingPrerecordedPlan_; }
         PlanPtr getBestGuess() const;
-        void setBestGuessOnly() { _bestGuessOnly = true; }
         //for testing
         const FieldRangeSet &fbs() const { return *fbs_; }
     private:
@@ -252,7 +252,8 @@ namespace mongo {
                          const BSONElement *hint = 0,
                          bool honorRecordedPlan = true,
                          const BSONObj &min = BSONObj(),
-                         const BSONObj &max = BSONObj() );
+                         const BSONObj &max = BSONObj(),
+                         bool bestGuessOnly = false );
         shared_ptr< QueryOp > runOp( QueryOp &op );
         template< class T >
         shared_ptr< T > runOp( T &op ) {
@@ -296,12 +297,11 @@ namespace mongo {
         };
         // takes ownership of 'op'
         MultiCursor( const char *ns, const BSONObj &pattern, const BSONObj &order, shared_ptr< CursorOp > op = shared_ptr< CursorOp >() )
-        : _mps( new MultiPlanScanner( ns, pattern, order ) ) {
+        : _mps( new MultiPlanScanner( ns, pattern, order, 0, true, BSONObj(), BSONObj(), !op.get() ) ) {
             if ( op.get() ) {
                 _op = op;
             } else {
                 _op.reset( new NoOp() );
-                _mps->setBestGuessOnly();
             }
             if ( _mps->mayRunMore() ) {
                 nextClause();
@@ -348,6 +348,8 @@ namespace mongo {
             return _c->getsetdup( loc );   
         }
         virtual CoveredIndexMatcher *matcher() const { return _matcher.get(); }
+        // just for testing
+        shared_ptr< Cursor > sub_c() const { return _c; }
     private:
         class NoOp : public CursorOp {
         public:
@@ -358,13 +360,11 @@ namespace mongo {
             virtual bool mayRecordPlan() const { return false; }
             virtual QueryOp *_createChild() const { return new NoOp(); }
             virtual shared_ptr< Cursor > newCursor() const { return qp().newCursor(); }
-        private:
-            shared_ptr< CoveredIndexMatcher > _matcher;
-            shared_ptr< CoveredIndexMatcher > _oldMatcher;
         };
         void nextClause() {
             shared_ptr< CursorOp > best = _mps->runOpOnce( *_op );
-            massert( 10401 , best->exceptionMessage(), best->complete() );
+            if ( ! best->complete() )
+                throw MsgAssertionException( best->exception() );
             _c = best->newCursor();
             _matcher = best->matcher();
             _op = best;

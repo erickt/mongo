@@ -59,13 +59,12 @@ namespace mongo {
             }
             catch ( AssertionException& e ) {
                 if ( lateAssert ){
-                    log() << "lateAssert: " << e.msg << endl;
+                    log() << "lateAssert: " << e.getInfo() << endl;
                     assert( !lateAssert );
                 }
 
                 BSONObjBuilder err;
-                err.append("$err", string("mongos: ") + (e.msg.empty() ? "assertion during query" : e.msg));
-                err.append("code",e.getCode());
+                e.getInfo().append( err );
                 BSONObj errObj = err.done();
                 replyToQuery(QueryResult::ResultFlag_ErrSet, r.p() , r.m() , errObj);
                 return;
@@ -108,12 +107,15 @@ namespace mongo {
                                  " key: " + o["key"].embeddedObjectUserCheck().toString() , 
                                  IndexDetails::isIdIndexPattern( newIndexKey ) ||
                                  ! o["unique"].trueValue() || 
-                                 r.getConfig()->getChunkManager( ns )->getShardKey().uniqueAllowd( newIndexKey ) );
+                                 r.getConfig()->getChunkManager( ns )->getShardKey().isPrefixOf( newIndexKey ) );
 
                         ChunkManagerPtr cm = r.getConfig()->getChunkManager( ns );
                         assert( cm );
-                        for ( int i=0; i<cm->numChunks();i++)
-                            doWrite( op , r , cm->getChunk(i)->getShard() );
+
+                        set<Shard> shards;
+                        cm->getAllShards(shards);
+                        for (set<Shard>::const_iterator it=shards.begin(), end=shards.end(); it != end; ++it)
+                            doWrite( op , r , *it );
                     }
                     else {
                         doWrite( op , r , r.primaryShard() );

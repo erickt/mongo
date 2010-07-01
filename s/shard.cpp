@@ -41,24 +41,50 @@ namespace mongo {
             
             scoped_lock lk( _mutex );
             
+            // We use the _lookup table for all shards and for the primary config DB. The config DB info,
+            // however, does not come from the ShardNS::shard. So when cleaning the _lookup table we leave
+            // the config state intact. The rationale is that this way we could drop shards that
+            // were removed without reinitializing the config DB information.
+
+            map<string,Shard>::iterator i = _lookup.find( "config" );
+            if ( i != _lookup.end() ){
+                Shard config = i->second;
+                _lookup.clear();
+                _lookup[ "config" ] = config;
+            } else {
+                _lookup.clear();
+            }
+
             for ( list<BSONObj>::iterator i=all.begin(); i!=all.end(); ++i ){
                 BSONObj o = *i;
                 string name = o["_id"].String();
                 string host = o["host"].String();
 
                 long long maxSize = 0;
-                BSONElement maxSizeElem = o["maxSize"];
+                BSONElement maxSizeElem = o[ ShardFields::maxSize.name() ];
                 if ( ! maxSizeElem.eoo() ){
                     maxSize = maxSizeElem.numberLong();
                 }
 
-                Shard s( name , host , maxSize );
+                bool isDraining = false;
+                BSONElement isDrainingElem = o[ ShardFields::draining.name() ];
+                if ( ! isDrainingElem.eoo() ){
+                    isDraining = isDrainingElem.Bool();
+                }
+
+                Shard s( name , host , maxSize , isDraining );
                 _lookup[name] = s;
                 _lookup[host] = s;
             }
 
         }
         
+        bool isMember( const string& addr ){
+            scoped_lock lk( _mutex );
+            map<string,Shard>::iterator i = _lookup.find( addr );
+            return i != _lookup.end();
+        }
+
         const Shard& find( const string& ident ){
             {
                 scoped_lock lk( _mutex );
@@ -86,6 +112,18 @@ namespace mongo {
                 _lookup[addr] = s;
         }
         
+        void remove( const string& name ){
+            scoped_lock lk( _mutex );
+            for ( map<string,Shard>::iterator i = _lookup.begin(); i!=_lookup.end(); ){
+                Shard s = i->second;
+                if ( s.getName() == name ){
+                    _lookup.erase(i++);
+                } else {
+                    ++i;
+                }
+            }
+        }
+
         void getAllShards( vector<Shard>& all ){
             scoped_lock lk( _mutex );
             std::set<string> seen;
@@ -118,6 +156,7 @@ namespace mongo {
         _name = s._name;
         _addr = s._addr;
         _maxSize = s._maxSize;
+        _isDraining = s._isDraining;
     }
     
     void Shard::getAllShards( vector<Shard>& all ){
@@ -146,7 +185,16 @@ namespace mongo {
     void Shard::reloadShardInfo(){
         staticShardInfo.reload();
     }
-    
+
+
+    bool Shard::isMember( const string& addr ){
+        return staticShardInfo.isMember( addr );
+    }
+  
+    void Shard::removeShard( const string& name ){
+        staticShardInfo.remove( name );
+    }
+
     Shard Shard::pick(){
         vector<Shard> all;
         staticShardInfo.getAllShards( all );
@@ -172,7 +220,7 @@ namespace mongo {
     ShardStatus::ShardStatus( const Shard& shard , const BSONObj& obj )
         : _shard( shard ) {
         _mapped = obj.getFieldDotted( "mem.mapped" ).numberLong();
-        _writeLock = 0; // TOOD
+        _writeLock = 0; // TODO
     }
 
 

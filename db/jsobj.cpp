@@ -102,7 +102,7 @@ namespace mongo {
         switch ( type() ) {
         case mongo::String:
         case Symbol:
-            s << '"' << escape( valuestr() ) << '"';
+            s << '"' << escape( string(valuestr(), valuestrsize()-1) ) << '"';
             break;
         case NumberLong:
             s << _numberLong();
@@ -641,7 +641,7 @@ namespace mongo {
     BSONObj staticNull = fromjson( "{'':null}" );
 
     /* well ordered compare */
-    int BSONObj::woSortOrder(const BSONObj& other, const BSONObj& sortKey ) const{
+    int BSONObj::woSortOrder(const BSONObj& other, const BSONObj& sortKey , bool useDotted ) const{
         if ( isEmpty() )
             return other.isEmpty() ? 0 : -1;
         if ( other.isEmpty() )
@@ -655,10 +655,10 @@ namespace mongo {
             if ( f.eoo() )
                 return 0;
 
-            BSONElement l = getField( f.fieldName() );
+            BSONElement l = useDotted ? getFieldDotted( f.fieldName() ) : getField( f.fieldName() );
             if ( l.eoo() )
                 l = staticNull.firstElement();
-            BSONElement r = other.getField( f.fieldName() );
+            BSONElement r = useDotted ? other.getFieldDotted( f.fieldName() ) : other.getField( f.fieldName() );
             if ( r.eoo() )
                 r = staticNull.firstElement();
 
@@ -728,7 +728,7 @@ namespace mongo {
         BSONElement sub = getField(left.c_str());
         if ( sub.eoo() )
             return nullElement;
-        else if ( sub.type() == Array || strlen( name ) == 0 )
+        else if ( sub.type() == Array || name[0] == '\0')
             return sub;
         else if ( sub.type() == Object )
             return sub.embeddedObject().getFieldDottedOrArray( name );

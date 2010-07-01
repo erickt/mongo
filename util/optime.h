@@ -23,11 +23,10 @@ namespace mongo {
     void exitCleanly( ExitCode code );
     
     struct ClockSkewException : public DBException {
-        virtual const char* what() const throw() { return "clock skew exception"; }
-        virtual int getCode() const { return 20001; }
+        ClockSkewException() : DBException( "clock skew exception" , 20001 ){}
     };
 
-    /* replsets use RSOpTime.  
+    /* replsets use RSOpTime.
        M/S uses OpTime.
        But this is useable from both.
        */
@@ -95,11 +94,12 @@ namespace mongo {
         unsigned long long asDate() const {
             return *((unsigned long long *) &i);
         }
+        long long asLL() const {
+            return *((long long *) &i);
+        }
         //	  unsigned long long& asDate() { return *((unsigned long long *) &i); }
         
-        bool isNull() {
-            return secs == 0;
-        }
+        bool isNull() const { return secs == 0; }
         
         string toStringLong() const {
             char buf[64];
@@ -126,6 +126,9 @@ namespace mongo {
             if ( secs != r.secs )
                 return secs < r.secs;
             return i < r.i;
+        }
+        bool operator<=(const OpTime& r) const { 
+            return *this < r || *this == r;
         }
     };
 #pragma pack()

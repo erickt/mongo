@@ -34,6 +34,7 @@
 #include "commands.h"
 #include "queryoptimizer.h"
 #include "lasterror.h"
+#include "../s/d_logic.h"
 
 namespace mongo {
 
@@ -139,14 +140,12 @@ namespace mongo {
             
         CursorId id = cc->cursorid;
             
-        unsigned long long nScanned = 0;
         bool justOne = justOneOrig;
+        bool canYield = !god && !creal->matcher()->docMatcher().atomic();
         do {
-            if ( ++nScanned % 128 == 0 && !god && !creal->matcher()->docMatcher().atomic() ) {
-                if ( ! cc->yield() ){
-                    cc.release(); // has already been deleted elsewhere
-                    break;
-                }
+            if ( canYield && ! cc->yieldSometimes() ){
+                cc.release(); // has already been deleted elsewhere
+                break;
             }
                 
             // this way we can avoid calling updateLocation() every time (expensive)
@@ -212,8 +211,7 @@ namespace mongo {
             return _runCommands(ns, jsobj, b, anObjBuilder, fromRepl, queryOptions);
         }
         catch ( AssertionException& e ) {
-            if ( !e.msg.empty() )
-                anObjBuilder.append("assertion", e.msg);
+            e.getInfo().append( anObjBuilder , "assertion" , "assertionCode" );
         }
         curop.debug().str << " assertion ";
         anObjBuilder.append("errmsg", "db assertion failure");
@@ -322,6 +320,12 @@ namespace mongo {
                 // in some cases (clone collection) there won't be a matcher
                 if ( c->matcher() && !c->matcher()->matches(c->currKey(), c->currLoc() ) ) {
                 }
+                /*
+                  TODO
+                else if ( _chunkMatcher && ! _chunkMatcher->belongsToMe( c->currKey(), c->currLoc() ) ){
+                    cout << "TEMP skipping un-owned chunk: " << c->current() << endl;
+                }
+                */
                 else {
                     if( c->getsetdup(c->currLoc()) ) {
                         //out() << "  but it's a dup \n";
@@ -477,7 +481,7 @@ namespace mongo {
         shared_ptr< CountOp > res = mps.runOp( original );
         if ( !res->complete() ) {
             log() << "Count with ns: " << ns << " and query: " << query
-                  << " failed with exception: " << res->exceptionMessage()
+                  << " failed with exception: " << res->exception()
                   << endl;
             return 0;
         }
@@ -507,14 +511,18 @@ namespace mongo {
             } else {
                 _b.reset( new BSONObjBuilder( _c->subobjStart() ) );
             }
-            *_b << "cursor" << c->toString() << "indexBounds" << c->prettyIndexBounds();
+            *_b << "cursor" << c->toString();
             _b->appendNumber( "nscanned", nscanned );
             _b->appendNumber( "nscannedObjects", nscannedObjects );
             *_b << "n" << n;
-            if ( scanAndOrder ) {
+
+            if ( scanAndOrder )
                 *_b << "scanAndOrder" << true;
-            }
+
             *_b << "millis" << millis;
+
+            *_b << "indexBounds" << c->prettyIndexBounds();
+
             if ( !hint ) {
                 *_b << "allPlans" << _a->arr();
             }
@@ -557,7 +565,9 @@ namespace mongo {
             _nscanned(0), _oldNscanned(0), _nscannedObjects(0), _oldNscannedObjects(0),
             _n(0),
             _oldN(0),
+            _chunkMatcher(shardingState.getChunkMatcher(pq.ns())),
             _inMemSort(false),
+            _yieldTracker(256,20),
             _saveClientCursor(false),
             _wouldSaveClientCursor(false),
             _oplogReplay( pq.hasOption( QueryOption_OplogReplay) ),
@@ -603,7 +613,19 @@ namespace mongo {
                 finish( false );
                 return;
             }
-            
+
+            if ( _cc || _yieldTracker.ping() ){
+                if ( ! _cc )
+                    _cc.reset( new ClientCursor( _pq.getOptions() | QueryOption_NoCursorTimeout , _c , _pq.ns() ) );
+                
+                if ( ! _cc->yieldSometimes() ){
+                    _c.reset();
+                    _cc.reset();
+                    finish(false);
+                    return;
+                }
+            }
+
             bool mayCreateCursor1 = _pq.wantMore() && ! _inMemSort && _pq.getNumToReturn() != 1 && useCursors;
             
             if( 0 ) { 
@@ -624,7 +646,13 @@ namespace mongo {
             else {
                 _nscannedObjects++;
                 DiskLoc cl = _c->currLoc();
-                if( !_c->getsetdup(cl) ) { 
+                if ( _chunkMatcher && ! _chunkMatcher->belongsToMe( _c->currKey(), _c->currLoc() ) ){
+                    // cout << "TEMP skipping un-owned chunk: " << _c->current() << endl;
+                }
+                else if( _c->getsetdup(cl) ) { 
+                    // dup
+                }
+                else {
                     // got a match.
                     
                     if ( _inMemSort ) {
@@ -754,10 +782,14 @@ namespace mongo {
         
         MatchDetails _details;
 
+        ChunkMatcherPtr _chunkMatcher;
+        
         bool _inMemSort;
         auto_ptr< ScanAndOrder > _so;
         
         shared_ptr<Cursor> _c;
+        shared_ptr<ClientCursor> _cc;
+        ElapsedTracker _yieldTracker;
 
         bool _saveClientCursor;
         bool _wouldSaveClientCursor;
@@ -925,7 +957,8 @@ namespace mongo {
         UserQueryOp original( pq, result, eb, curop );
         shared_ptr< UserQueryOp > o = mps->runOp( original );
         UserQueryOp &dqo = *o;
-        massert( 10362 ,  dqo.exceptionMessage(), dqo.complete() );
+        if ( ! dqo.complete() )
+            throw MsgAssertionException( dqo.exception() );
         if ( explain ) {
             dqo.finishExplain( explainSuffix );
         }

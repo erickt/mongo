@@ -29,6 +29,8 @@ using namespace bson;
 
 namespace mongo { 
 
+    void logOpInitiate(const bo&);
+
     list<HostAndPort> ReplSetConfig::otherMemberHostnames() const { 
         list<HostAndPort> L;
         for( vector<MemberCfg>::const_iterator i = members.begin(); i != members.end(); i++ ) {
@@ -38,16 +40,21 @@ namespace mongo {
         return L;
     }
 
-    void ReplSetConfig::saveConfigLocally() { 
+    /* comment MUST only be set when initiating the set by the initiator */
+    void ReplSetConfig::saveConfigLocally(bo comment) { 
         check();
         log() << "replSet info saving a newer config version to local.system.replset" << rsLog;
         MemoryMappedFile::flushAll(true);
         { 
             writelock lk("");
-            rsOpTime.initiate();
+            // todo: set optime here.
+            cout << "todo set optime here" << endl;
+            //theReplSet->lastOpTimeWritten = ??;
+            //rather than above, do a logOp()? probably
             BSONObj o = asBson();
             Helpers::putSingletonGod(rsConfigNs.c_str(), o, false/*logOp=false; local db so would work regardless...*/);
-            logOpComment(BSON("msg"<<"initiating"));
+            if( !comment.isEmpty() )
+                logOpInitiate(comment);
             MemoryMappedFile::flushAll(true);
         }
     }
@@ -63,7 +70,7 @@ namespace mongo {
         writelock lk("admin.");
         if( theReplSet ) 
             return;
-        c.saveConfigLocally();
+        c.saveConfigLocally(bo());
     }
 
     bo ReplSetConfig::MemberCfg::asBson() const { 
@@ -117,11 +124,9 @@ namespace mongo {
         uassert(13132,
             "nonmatching repl set name in _id field; check --replSet command line",
             startsWith(cmdLine.replSet, _id + '/'));
-        uassert(13133, 
-                "replSet config value is not valid",
-                members.size() >= 1 && members.size() <= 64 && 
-                version > 0);
-
+        uassert(13308, "replSet bad config version #", version > 0);
+        uassert(13133, "replSet bad config no members", members.size() >= 1);
+        uassert(13309, "replSet bad config maximum number of members is 7 (for now)", members.size() <= 7);
     }
 
     void ReplSetConfig::from(BSONObj o) {
@@ -167,8 +172,10 @@ namespace mongo {
                 }
                 catch(...) { throw "bad or missing host field?"; }
                 m.arbiterOnly = mobj.getBoolField("arbiterOnly");
-                try { m.priority = mobj["priority"].Number(); } catch(...) { }
-                try { m.votes = (unsigned) mobj["votes"].Number(); } catch(...) { }
+                if( mobj.hasElement("priority") )
+                    m.priority = mobj["priority"].Number();
+                if( mobj.hasElement("votes") )
+                    m.votes = (unsigned) mobj["votes"].Number();
                 m.check();
             }
             catch( const char * p ) { 
@@ -236,7 +243,6 @@ namespace mongo {
                     { 
                         stringstream ss;
                         ss << "replSet error: member " << h.toString() << " is not in --replSet mode";
-                        cout << "TEMP " << info.toString() << endl;
                         msgassertedNoTrace(13260, ss.str().c_str()); // not caught as not a user exception - we want it not caught
                         //for python err# checker: uassert(13260, "", false);
                     }
@@ -258,7 +264,7 @@ namespace mongo {
         }
         catch( DBException& e) { 
             version = v;
-            log(level) << "replSet load config couldn't load " << h.toString() << ' ' << e.what() << rsLog;
+            log(level) << "replSet load config couldn't get from " << h.toString() << ' ' << e.what() << rsLog;
             return;
         }
 

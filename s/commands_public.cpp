@@ -126,7 +126,7 @@ namespace mongo {
                 
                 log() << "DROP DATABASE: " << dbName << endl;
 
-                if ( ! conf || ! conf->isShardingEnabled() ){
+                if ( ! conf ){
                     log(1) << "  passing though drop database for: " << dbName << endl;
                     return passthrough( conf , cmdObj , result );
                 }
@@ -314,9 +314,10 @@ namespace mongo {
                 for ( vector<shared_ptr<ChunkRange> >::iterator i = chunks.begin() ; i != chunks.end() ; i++ ){
                     shared_ptr<ChunkRange> c = *i;
 
+                    BSONObj myCommand = fixCmdObj( cmdObj , c );
                     ShardConnection conn( c->getShard() , fullns );
                     BSONObj res;
-                    bool ok = conn->runCommand( conf->getName() , fixCmdObj(cmdObj, c) , res );
+                    bool ok = conn->runCommand( conf->getName() , myCommand , res );
                     conn.done();
 
                     if (ok || (strcmp(res["errmsg"].valuestrsafe(), "No matching object found") != 0)){
@@ -583,5 +584,18 @@ namespace mongo {
                 return 1;
             }
         } mrCmd;
+        
+        class ApplyOpsCmd : public PublicGridCommand {
+        public:
+            ApplyOpsCmd() : PublicGridCommand( "applyOps" ){}
+            
+            virtual bool run(const string& dbName , BSONObj& cmdObj, string& errmsg, BSONObjBuilder& result, bool){
+                errmsg = "applyOps not allowed through mongos";
+                return false;
+            }
+            
+        } applyOpsCmd;
+        
     }
+
 }

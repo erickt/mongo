@@ -43,6 +43,8 @@
 #include "../client/dbclient.h"
 #include "../util/processinfo.h"
 #include "utils.h"
+#include "../util/text.h"
+#include "../util/md5.hpp"
 
 extern const char * jsconcatcode_server;
 
@@ -54,6 +56,8 @@ namespace mongo {
 #endif
 
     namespace shellUtils {
+
+        Scope* theScope = 0;
         
         std::string _dbConnect;
         std::string _dbAuth;
@@ -87,10 +91,11 @@ namespace mongo {
             return undefined_;
         }
 
-        
+        void goingAwaySoon();
         BSONObj Quit(const BSONObj& args) {
             // If not arguments are given first element will be EOO, which
             // converts to the integer value 0.
+            goingAwaySoon();
             int exit_code = int( args.firstElement().number() );
             ::exit(exit_code);
             return undefined_;
@@ -174,6 +179,21 @@ namespace mongo {
             return BSONObj();
         }
 
+        BSONObj cd(const BSONObj& args) { 
+#if defined(_WIN32)
+            std::wstring dir = toWideString( args.firstElement().String().c_str() );
+            if( SetCurrentDirectory(dir.c_str()) )
+                return BSONObj();
+#else
+            string dir = args.firstElement().String();
+/*            if( chdir(dir.c_str) ) == 0 )
+                return BSONObj();
+                */
+            if( 1 ) return BSON(""<<"implementation not done for posix");
+#endif
+            return BSON( "" << "change directory failed" );
+        }
+
         BSONObj pwd(const BSONObj&) { 
             boost::filesystem::path p = boost::filesystem::current_path();
             return BSON( "" << p.string() );
@@ -183,9 +203,55 @@ namespace mongo {
             return BSON( "" << getHostName() );
         }
 
-        BSONObj removeFile(const BSONObj& args){
+        static BSONElement oneArg(const BSONObj& args) { 
             uassert( 12597 , "need to specify 1 argument" , args.nFields() == 1 );
-            
+            return args.firstElement();
+        }
+
+        const int CANT_OPEN_FILE = 13300;
+
+        BSONObj cat(const BSONObj& args){
+            BSONElement e = oneArg(args);
+            stringstream ss;
+            ifstream f(e.valuestrsafe());
+            uassert(CANT_OPEN_FILE, "couldn't open file", f.is_open() );
+
+            streamsize sz = 0;
+            while( 1 ) {
+                char ch = 0;
+                // slow...maybe change one day
+                f.get(ch);
+                if( ch == 0 ) break;
+                ss << ch;
+                sz += 1;
+                uassert(13301, "cat() : file to big to load as a variable", sz < 1024 * 1024 * 16);
+            }
+            return BSON( "" << ss.str() );
+        }
+
+        BSONObj md5sumFile(const BSONObj& args){
+            BSONElement e = oneArg(args);
+            stringstream ss;
+            FILE* f = fopen(e.valuestrsafe(), "rb");
+            uassert(CANT_OPEN_FILE, "couldn't open file", f );
+
+            md5digest d;
+            md5_state_t st;
+            md5_init(&st);
+
+            enum {BUFLEN = 4*1024};
+            char buffer[BUFLEN];
+            int bytes_read;
+            while( (bytes_read = fread(buffer, 1, BUFLEN, f)) ) {
+                md5_append( &st , (const md5_byte_t*)(buffer) , bytes_read );
+            }
+
+            md5_finish(&st, d);
+            return BSON( "" << digestToString( d ) );
+        }
+
+        BSONObj removeFile(const BSONObj& args){
+            BSONElement e = oneArg(args);
             bool found = false;
             
             path root( args.firstElement().valuestrsafe() );
@@ -207,8 +273,14 @@ namespace mongo {
         mongo::mutex mongoProgramOutputMutex("mongoProgramOutputMutex");
         stringstream mongoProgramOutput_;
 
+        void goingAwaySoon() { 
+            mongo::mutex::scoped_lock lk( mongoProgramOutputMutex );
+            mongo::goingAway = true;
+        }
+
         void writeMongoProgramOutputLine( int port, int pid, const char *line ) {
             mongo::mutex::scoped_lock lk( mongoProgramOutputMutex );
+            if( mongo::goingAway ) throw "program is terminating";
             stringstream buf;
             if ( port > 0 )
                 buf << "m" << port << "| " << line;
@@ -241,13 +313,48 @@ namespace mongo {
             pid_t pid_;
         public:
             pid_t pid() const { return pid_; }
+            int port() const { return port_; }
+
+            boost::filesystem::path find(string prog) { 
+                boost::filesystem::path p = prog;
+#ifdef _WIN32
+                p = change_extension(p, ".exe");
+#endif
+
+                if( boost::filesystem::exists(p) ){
+#ifndef _WIN32
+                    p = boost::filesystem::initial_path() / p;
+#endif
+                    return p;
+                }
+
+                {
+                    boost::filesystem::path t = boost::filesystem::current_path() / p;
+                    if( boost::filesystem::exists(t)  ) return t;
+                }
+                try {
+                    if( theScope->type("_path") == String ) {
+                        string path = theScope->getString("_path");
+                        if( !path.empty() ) {
+                            boost::filesystem::path t = boost::filesystem::path(path) / p;
+                            if( boost::filesystem::exists(t) ) return t;
+                        }
+                    }
+                } catch(...) { }
+                {
+                    boost::filesystem::path t = boost::filesystem::initial_path() / p;
+                    if( boost::filesystem::exists(t)  ) return t;
+                }
+                return p; // not found; might find via system path
+            } 
+
             ProgramRunner( const BSONObj &args , bool isMongoProgram=true)
             {
                 assert( !args.isEmpty() );
 
                 string program( args.firstElement().valuestrsafe() );
                 assert( !program.empty() );
-                boost::filesystem::path programPath = program;
+                boost::filesystem::path programPath = find(program);
 
                 if (isMongoProgram){
 #if 0
@@ -260,12 +367,6 @@ namespace mongo {
                         argv_.push_back("--");
                     }
 #endif
-
-                    programPath = boost::filesystem::initial_path() / programPath;
-#ifdef _WIN32
-                    programPath = change_extension(programPath, ".exe");
-#endif
-                    massert( 10435 ,  "couldn't find " + programPath.native_file_string(), boost::filesystem::exists( programPath ) );
                 }
 
                 argv_.push_back( programPath.native_file_string() );
@@ -294,8 +395,11 @@ namespace mongo {
                 
                 if ( program != "mongod" && program != "mongos" && program != "mongobridge" )
                     port_ = 0;
-                else
+                else {
+                    if ( port_ <= 0 )
+                        cout << "error: a port number is expected when running mongod (etc.) from the shell" << endl;
                     assert( port_ > 0 );
+                }
                 if ( port_ > 0 && dbs.count( port_ ) != 0 ){
                     cerr << "count for port: " << port_ << " is not 0 is: " << dbs.count( port_ ) << endl;
                     assert( dbs.count( port_ ) == 0 );        
@@ -309,10 +413,14 @@ namespace mongo {
                 fflush( 0 );
                 launch_process(pipeEnds[1]); //sets pid_
                 
-                cout << "shell: started mongo program";
-                for (unsigned i=0; i < argv_.size(); i++)
-                    cout << " " << argv_[i];
-                cout << endl;
+                {
+                    stringstream ss;
+                    ss << "shell: started program";
+                    for (unsigned i=0; i < argv_.size(); i++)
+                        ss << " " << argv_[i];
+                    ss << '\n';
+                    cout << ss.str(); cout.flush();
+                }
 
                 if ( port_ > 0 )
                     dbs.insert( make_pair( port_, make_pair( pid_, pipeEnds[ 1 ] ) ) );
@@ -323,6 +431,7 @@ namespace mongo {
             
             // Continue reading output
             void operator()() {
+                try {
                 // This assumes there aren't any 0's in the mongo program output.
                 // Hope that's ok.
                 char buf[ 1024 ];
@@ -331,6 +440,8 @@ namespace mongo {
                 while( 1 ) {
                     int lenToRead = 1023 - ( start - buf );
                     int ret = read( pipe_, (void *)start, lenToRead );
+                    if( mongo::goingAway )
+                        break;
                     assert( ret != -1 );
                     start[ ret ] = '\0';
                     if ( strlen( start ) != unsigned( ret ) )
@@ -353,7 +464,9 @@ namespace mongo {
                         assert( strlen( buf ) <= 1023 );
                     }
                     start = buf + strlen( buf );
-                }        
+                }    
+                } catch(...) { 
+                }
             }
             void launch_process(int child_stdout){
 #ifdef _WIN32
@@ -389,13 +502,17 @@ namespace mongo {
                 ZeroMemory(&pi, sizeof(pi));
 
                 bool success = CreateProcess( NULL, args_tchar.get(), NULL, NULL, true, 0, NULL, NULL, &si, &pi) != 0;
-                uassert(13294, "couldn't start process", success);
+                {
+                    stringstream ss;
+                    ss << "couldn't start process " << argv_[0];
+                    uassert(13294, ss.str(), success);
+                }
 
                 CloseHandle(pi.hThread);
 
                 pid_ = pi.dwProcessId;
                 handles.insert( make_pair( pid_, pi.hProcess ) );
-
+                
 #else
 
                 pid_ = fork();
@@ -419,7 +536,7 @@ namespace mongo {
 
                     execvp( argv[ 0 ], const_cast<char**>(argv) );
 
-                    cout << "Unable to start program: " << errnoWithDescription() << endl;
+                    cout << "Unable to start program " << argv[0] << ' ' << errnoWithDescription() << endl;
                     ::_Exit(-1);
                 }
 
@@ -475,9 +592,14 @@ namespace mongo {
             ProgramRunner r( a );
             r.start();
             boost::thread t( r );
-            wait_for_pid(r.pid());
-            shells.erase( r.pid() );
-            return BSON( string( "" ) << int( r.pid() ) );
+            int exit_code;
+            wait_for_pid( r.pid(), true, &exit_code );
+            if ( r.port() > 0 ) {
+                dbs.erase( r.port() );
+            } else {
+                shells.erase( r.pid() );
+            }
+            return BSON( string( "" ) << exit_code );
         }
 
         BSONObj RunProgram(const BSONObj &a) {
@@ -694,6 +816,7 @@ namespace mongo {
         }
         
         void installShellUtils( Scope& scope ){
+            theScope = &scope;
             scope.injectNative( "sleep" , JSSleep );
             scope.injectNative( "quit", Quit );
             scope.injectNative( "getMemInfo" , JSGetMemInfo );
@@ -718,9 +841,12 @@ namespace mongo {
             scope.injectNative( "listFiles" , listFiles );
             scope.injectNative( "ls" , ls );
             scope.injectNative( "pwd", pwd );
+            scope.injectNative( "cd", cd );
+            scope.injectNative( "cat", cat );
             scope.injectNative( "hostname", hostname);
             scope.injectNative( "resetDbpath", ResetDbpath );
             scope.injectNative( "copyDbpath", CopyDbpath );
+            scope.injectNative( "md5sumFile", md5sumFile );
 #endif
         }
 

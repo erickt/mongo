@@ -63,14 +63,14 @@ namespace mongo {
         }
 
         updateLength( filename, length );
-        std::wstring filenamew = toWideString(filename);
 
         DWORD createOptions = FILE_ATTRIBUTE_NORMAL;
         if ( options & SEQUENTIAL )
             createOptions |= FILE_FLAG_SEQUENTIAL_SCAN;
 
         fd = CreateFile(
-                 filenamew.c_str(), GENERIC_WRITE | GENERIC_READ, FILE_SHARE_READ,
+                 toNativeString(filename).c_str(),
+                 GENERIC_WRITE | GENERIC_READ, FILE_SHARE_READ,
                  NULL, OPEN_ALWAYS, createOptions , NULL);
         if ( fd == INVALID_HANDLE_VALUE ) {
             out() << "Create/OpenFile failed " << filename << ' ' << GetLastError() << endl;
@@ -112,4 +112,8 @@ namespace mongo {
             out() << "FlushFileBuffers failed " << err << " file: " << _filename << endl;
         }
     }
+
+    void MemoryMappedFile::_lock() {}
+    void MemoryMappedFile::_unlock() {}
+
 } 

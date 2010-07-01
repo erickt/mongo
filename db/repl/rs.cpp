@@ -26,7 +26,6 @@ namespace mongo {
 
     bool replSet = false;
     ReplSet *theReplSet = 0;
-    RSOpTime rsOpTime;
 
     void ReplSetImpl::assumePrimary() { 
         writelock lk("admin."); // so we are synchronized with _logOp() 
@@ -88,6 +87,7 @@ namespace mongo {
         _self(0), 
         mgr( new Manager(this) )
     {
+        h = 0;
         _myState = STARTUP;
         _currentPrimary = 0;
 
@@ -143,20 +143,21 @@ namespace mongo {
 
     void newReplUp();
 
-    void RSOpTime::load() { 
-        ord = 0;
+    void ReplSetImpl::loadLastOpTimeWritten() { 
+        assert( lastOpTimeWritten.isNull() );
         readlock lk(rsoplog);
         BSONObj o;
         if( Helpers::getLast(rsoplog.c_str(), o) ) { 
-            ord = (unsigned long long) o["t"].Long();
-            uassert(13290, "bad replSet oplog entry?", ord > 0);
+            cout << "TEMP " << o.toString() << endl;
+            lastOpTimeWritten = o["ts"]._opTime();
+            uassert(13290, "bad replSet oplog entry?", !lastOpTimeWritten.isNull());
         }
     }
 
     /* call after constructing to start - returns fairly quickly after launching its threads */
     void ReplSetImpl::_go() { 
         try { 
-            rsOpTime.load();
+            loadLastOpTimeWritten();
         }
         catch(std::exception& e) { 
             log() << "replSet ERROR FATAL couldn't query the local " << rsoplog << " collection.  Terminating mongod after 30 seconds." << rsLog;
@@ -188,12 +189,16 @@ namespace mongo {
                 me++;
                 assert( _self == 0 );
                 _self = new Member(m.h, m._id, &m);
+                _selfId = m._id;
             } else {
                 Member *mi = new Member(m.h, m._id, &m);
                 _members.push(mi);
             }
         }
-        assert( me == 1 );
+        if( me != 1 ) {
+            log() << "replSet config : " << _cfg->toString() << rsLog;
+            uassert( 13302, "replSet : can't find self in the repl set configuration", me == 1 );
+        }
 
 /*        if( save ) { 
             _cfg->save();
@@ -219,7 +224,7 @@ namespace mongo {
         if( highest->version > myVersion && highest->version >= 0 ) { 
             log() << "replSet got config version " << highest->version << " from a remote, saving locally" << rsLog;
             writelock lk("admin.");
-            highest->saveConfigLocally();
+            highest->saveConfigLocally(BSONObj());
         }
     }
 
@@ -258,6 +263,7 @@ namespace mongo {
                     }
 
                     sleepsecs(20);
+                    cout << "TEMP END SLEEP 20" << endl;
                     continue;
                 }
                 _loadConfigFinish(configs);
@@ -266,7 +272,7 @@ namespace mongo {
                 startupStatus = BADCONFIG;
                 startupStatusMsg = "replSet error loading set config (BADCONFIG)";
                 log() << "replSet error loading configurations " << e.toString() << rsLog;
-                log() << "replSet replication will not start" << rsLog;
+                log() << "replSet error replication will not start" << rsLog;
                 _fatal();
                 throw;
             }

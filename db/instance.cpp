@@ -186,7 +186,7 @@ namespace mongo {
             }
 
             BSONObjBuilder err;
-            err.append("$err", e.msg.empty() ? "assertion during query" : e.msg);
+            e.getInfo().append( err );
             BSONObj errObj = err.done();
 
             BufBuilder b;
@@ -453,7 +453,7 @@ namespace mongo {
         Client::Context ctx( ns );
 
         UpdateResult res = updateObjects(ns, toupdate, query, upsert, multi, true, op.debug() );
-        recordUpdate( res.existing , (int) res.num ); // for getlasterror
+        lastError.getSafe()->recordUpdate( res.existing , res.num , res.upserted ); // for getlasterror
     }
 
     void receivedDelete(Message& m, CurOp& op) {
@@ -475,7 +475,7 @@ namespace mongo {
         Client::Context ctx(ns);
 
         long long n = deleteObjects(ns, pattern, justOne, true);
-        recordDelete( (int) n );
+        lastError.getSafe()->recordDelete( n );
     }
     
     QueryResult* emptyMoreResult(long long);
@@ -563,8 +563,8 @@ namespace mongo {
         Message & container;
     };
     
-    void getDatabaseNames( vector< string > &names ) {
-        boost::filesystem::path path( dbpath );
+    void getDatabaseNames( vector< string > &names , const string& usePath ) {
+        boost::filesystem::path path( usePath );
         for ( boost::filesystem::directory_iterator i( path );
                 i != boost::filesystem::directory_iterator(); ++i ) {
             if ( directoryperdb ) {
@@ -579,6 +579,17 @@ namespace mongo {
                     names.push_back( fileName.substr( 0, fileName.length() - 3 ) );
             }
         }
+    }
+
+    /* returns true if there is data on this server.  useful when starting replication. 
+       local database does NOT count. 
+    */
+    bool haveDatabases() { 
+        vector<string> names;
+        getDatabaseNames(names);
+        if( names.size() >= 2 ) return true;
+        if( names.size() == 1 && names[0] != "local" ) return true;
+        return false;
     }
 
     bool DBDirectClient::call( Message &toSend, Message &response, bool assertOk ) {

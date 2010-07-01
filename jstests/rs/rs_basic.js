@@ -1,18 +1,52 @@
 // rs_basic.js
 
-load("test_framework.js");
+load("../../jstests/rs/test_framework.js");
 
 function go() {
-    a = rs_mongod();
+    assert(__nextPort == 27000, "_nextPort==27000");
+
+    a = null;
+    try {init
+        a = new Mongo("localhost:27000");
+        print("using already open mongod on port 27000 -- presume you are debugging or something. should start empty.");
+        __nextPort++;
+    }
+    catch (e) {
+        a = rs_mongod();
+    }
+
     b = rs_mongod();
 
     x = a.getDB("admin");
     y = b.getDB("admin");
+    memb = [];
+    memb[0] = x;
+    memb[1] = y;
 
-    print("started 2");
+    print("rs_basic.js go(): started 2 servers");
+
+    cfg = { _id: 'asdf', members: [] };
+    var hn = hostname();
+    cfg.members[0] = { _id: 0, host: hn + ":27000" };
+    cfg.members[1] = { _id: 1, host: hn + ":27001" };
+
+    print("cfg=" + tojson(cfg));
 }
 
-print("type go() to run");
+function init(server) {
+    var i = server;
+    //i = Random.randInt(2); // a random member of the set
+    var m = memb[i];
+    assert(!m.ismaster(), "not ismaster");
+    var res = m.runCommand({ replSetInitiate: cfg });
+    return res;
+}
+
+_path = '../../db/Debug/';
+print("_path var set to " + _path);
+
+print("go() to run");
+print("init() to initiate");
 
 
 /*

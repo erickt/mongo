@@ -193,9 +193,6 @@
     <ClCompile Include="index.cpp">
       <Filter>db\core</Filter>
     </ClCompile>
-    <ClCompile Include="index_geo2d.cpp">
-      <Filter>db\core</Filter>
-    </ClCompile>
     <ClCompile Include="indexkey.cpp">
       <Filter>db\core</Filter>
     </ClCompile>
@@ -334,11 +331,20 @@
     <ClCompile Include="..\pch.cpp">
       <Filter>db</Filter>
     </ClCompile>
-    <ClCompile Include="..\util\text.cpp">
-      <Filter>util</Filter>
-    </ClCompile>
     <ClCompile Include="..\s\d_writeback.cpp">
       <Filter>db\sharding</Filter>
+    </ClCompile>
+    <ClCompile Include="..\s\d_state.cpp">
+      <Filter>db\sharding</Filter>
+    </ClCompile>
+    <ClCompile Include="..\util\text.cpp">
+      <Filter>util\core</Filter>
+    </ClCompile>
+    <ClCompile Include="geo\2d.cpp">
+      <Filter>db\geo</Filter>
+    </ClCompile>
+    <ClCompile Include="geo\quadrant_search.cpp">
+      <Filter>db\geo</Filter>
     </ClCompile>
   </ItemGroup>
   <ItemGroup>
@@ -699,6 +705,12 @@
     <ClInclude Include="..\pch.h">
       <Filter>db</Filter>
     </ClInclude>
+    <ClInclude Include="..\util\text.h">
+      <Filter>util\core</Filter>
+    </ClInclude>
+    <ClInclude Include="geo\core.h">
+      <Filter>db\geo</Filter>
+    </ClInclude>
   </ItemGroup>
   <ItemGroup>
     <Filter Include="libs">
@@ -706,9 +718,6 @@
     </Filter>
     <Filter Include="util">
       <UniqueIdentifier>{d2c3db88-7fb7-4365-a63b-b7ad45d316ae}</UniqueIdentifier>
-    </Filter>
-    <Filter Include="bson">
-      <UniqueIdentifier>{aff20a87-2efe-4861-930f-8780c08cbea5}</UniqueIdentifier>
     </Filter>
     <Filter Include="util\concurrency">
       <UniqueIdentifier>{8e6fe846-2833-45bb-b13b-c0f0d4d38593}</UniqueIdentifier>
@@ -758,6 +767,15 @@
     <Filter Include="util\core">
       <UniqueIdentifier>{9775f24c-3a29-4e0d-b5de-991c592cf376}</UniqueIdentifier>
     </Filter>
+    <Filter Include="Resource Files">
+      <UniqueIdentifier>{9aea1b83-cdcb-48a8-97e6-47805cacdc29}</UniqueIdentifier>
+    </Filter>
+    <Filter Include="bson">
+      <UniqueIdentifier>{aff20a87-2efe-4861-930f-8780c08cbea5}</UniqueIdentifier>
+    </Filter>
+    <Filter Include="db\geo">
+      <UniqueIdentifier>{2a0924a5-9bd9-4c86-a149-0df09dcb5548}</UniqueIdentifier>
+    </Filter>
   </ItemGroup>
   <ItemGroup>
     <None Include="repl\notes.txt">
@@ -775,11 +793,17 @@
     <None Include="readme.txt">
       <Filter>util\concurrency</Filter>
     </None>
-    <None Include="mongo.ico">
-      <Filter>libs</Filter>
-    </None>
     <None Include="..\SConstruct">
       <Filter>db</Filter>
+    </None>
+    <None Include="..\jstests\rs\rs_basic.js">
+      <Filter>rs\test stuff</Filter>
+    </None>
+    <None Include="..\jstests\rs\test_framework.js">
+      <Filter>rs\test stuff</Filter>
+    </None>
+    <None Include="mongo.ico">
+      <Filter>Resource Files</Filter>
     </None>
   </ItemGroup>
   <ItemGroup>
@@ -798,7 +822,7 @@
   </ItemGroup>
   <ItemGroup>
     <ResourceCompile Include="db.rc">
-      <Filter>db\core</Filter>
+      <Filter>Resource Files</Filter>
     </ResourceCompile>
   </ItemGroup>
 </Project>

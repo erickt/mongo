@@ -81,11 +81,11 @@ namespace mongo {
             s << td(h);
         }
         s << td(config().votes);
-        s << td(ReplSet::stateAsStr(state()));
-        s << td( red(hbinfo().lastHeartbeatMsg,!ok) );
+        s << td( grey(ReplSet::stateAsStr(state()), !ok) );
+        s << td( grey(hbinfo().lastHeartbeatMsg,!ok) );
         stringstream q;
         q << "/_replSetOplog?" << id();
-        s << td( a(q.str(), "", "finish") );
+        s << td( a(q.str(), "", hbinfo().opTime.toString()) );
         s << _tr();
     }
 
@@ -122,17 +122,23 @@ namespace mongo {
             return;
         }
 
-        const bo fields = BSON( "o" << -1 << "o2" << -1 );
+        ss << p("Server : " + m->fullName() );
+
+        const bo fields = BSON( "o" << false << "o2" << false );
 
         ScopedConn conn(m->fullName());        
 
         auto_ptr<DBClientCursor> c = conn->query(rsoplog, Query().sort("$natural",1), 20, 0, &fields);
         ss << "<pre>\n";
         int n = 0;
-        long long lastOrd = 0;
+        OpTime otFirst;
+        OpTime otLast;
+        OpTime otEnd;
         while( c->more() ) {
             bo o = c->next();
-            lastOrd = o["t"].Long();
+            otLast = o["ts"]._opTime();
+            if( otFirst.isNull() ) 
+                otFirst = otLast;
             say(ss, o);
             n++;            
         }
@@ -142,19 +148,25 @@ namespace mongo {
         else { 
             auto_ptr<DBClientCursor> c = conn->query(rsoplog, Query().sort("$natural",-1), 20, 0, &fields);
             string x;
-            while( c->more() ) {
+            bo o = c->next();
+            otEnd = o["ts"]._opTime();
+            while( 1 ) {
                 stringstream z;
-                bo o = c->next();
-                if( o["t"].Long() == lastOrd ) 
+                if( o["ts"]._opTime() == otLast ) 
                     break;
                 say(z, o);
                 x = z.str() + x;
+                if( !c->more() )
+                    break;
+                bo o = c->next();
             }
             if( !x.empty() ) {
                 ss << "\n...\n\n" << x;
             }
         }
         ss << "</pre>\n";
+        if( !otEnd.isNull() )
+            ss << "<p>Log length in time: " << otEnd.getSecs() - otFirst.getSecs() << " secs</p>\n";
     }
 
     void ReplSetImpl::_summarizeAsHtml(stringstream& s) const { 
@@ -187,7 +199,7 @@ namespace mongo {
             s << td( _self->lhb() );
             stringstream q;
             q << "/_replSetOplog?" << _self->id();
-            s << td( a(q.str(), "", rsOpTime.toString()) );
+            s << td( a(q.str(), "", theReplSet->lastOpTimeWritten.toString()) );
             s << _tr();
 			mp[_self->hbinfo().id()] = s.str();
         }

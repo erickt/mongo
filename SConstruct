@@ -270,6 +270,7 @@ linux64  = False
 darwin = False
 windows = False
 freebsd = False
+openbsd = False
 solaris = False
 force64 = not GetOption( "force64" ) is None
 if not force64 and os.getcwd().endswith( "mongo-64" ):
@@ -415,7 +416,7 @@ if GetOption( "asio" ) != None:
 
 serverOnlyFiles = Split( "db/query.cpp db/update.cpp db/introspect.cpp db/btree.cpp db/clientcursor.cpp db/tests.cpp db/repl.cpp db/repl/rs.cpp db/repl/consensus.cpp db/repl/rs_initiate.cpp db/repl/replset_commands.cpp db/repl/manager.cpp db/repl/health.cpp db/repl/heartbeat.cpp db/repl/rs_config.cpp db/oplog.cpp db/repl_block.cpp db/btreecursor.cpp db/cloner.cpp db/namespace.cpp db/matcher_covered.cpp db/dbeval.cpp db/dbwebserver.cpp db/dbhelpers.cpp db/instance.cpp db/client.cpp db/database.cpp db/pdfile.cpp db/cursor.cpp db/security_commands.cpp db/security.cpp util/miniwebserver.cpp db/storage.cpp db/queryoptimizer.cpp db/extsort.cpp db/mr.cpp s/d_util.cpp db/cmdline.cpp" )
 
-serverOnlyFiles += [ "db/index.cpp" ] + Glob( "db/index_*.cpp" )
+serverOnlyFiles += [ "db/index.cpp" ] + Glob( "db/geo/*.cpp" )
 
 serverOnlyFiles += [ "db/dbcommands.cpp" , "db/dbcommands_admin.cpp" ]
 coreServerFiles += Glob( "db/stats/*.cpp" )
@@ -434,7 +435,7 @@ coreServerFiles += scriptingFiles
 
 coreShardFiles = []
 shardServerFiles = coreShardFiles + Glob( "s/strategy*.cpp" ) + [ "s/commands_admin.cpp" , "s/commands_public.cpp" , "s/request.cpp" ,  "s/cursors.cpp" ,  "s/server.cpp" , "s/chunk.cpp" , "s/shard.cpp" , "s/shardkey.cpp" , "s/config.cpp" , "s/config_migrate.cpp" , "s/s_only.cpp" , "s/stats.cpp" , "s/balance.cpp" , "s/balancer_policy.cpp" , "db/cmdline.cpp" ]
-serverOnlyFiles += coreShardFiles + [ "s/d_logic.cpp" , "s/d_writeback.cpp" , "s/d_migrate.cpp" ]
+serverOnlyFiles += coreShardFiles + [ "s/d_logic.cpp" , "s/d_writeback.cpp" , "s/d_migrate.cpp" , "s/d_state.cpp" ]
 
 serverOnlyFiles += [ "db/module.cpp" ] + Glob( "db/modules/*.cpp" )
 
@@ -555,6 +556,13 @@ elif os.sys.platform.startswith( "freebsd" ):
     env.Append( LIBPATH=[ "/usr/local/lib" ] )
     env.Append( CPPDEFINES=[ "__freebsd__" ] )
 
+elif os.sys.platform.startswith( "openbsd" ):
+    nix = True
+    openbsd = True
+    env.Append( CPPPATH=[ "/usr/local/include" ] )
+    env.Append( LIBPATH=[ "/usr/local/lib" ] )
+    env.Append( CPPDEFINES=[ "__openbsd__" ] )
+
 elif "win32" == os.sys.platform:
     windows = True
     #if force64:
@@ -588,6 +596,8 @@ elif "win32" == os.sys.platform:
     if boostDir is None:
         print( "can't find boost" )
         Exit(1)
+    else:
+        print( "boost found at '" + boostDir + "'" )
 
     serverOnlyFiles += [ "util/ntservice.cpp" ]
 
@@ -597,7 +607,10 @@ elif "win32" == os.sys.platform:
     env.Append(CPPPATH=["../js/src/"])
     env.Append(LIBPATH=["../js/src"])
     env.Append(LIBPATH=["../js/"])
+
     env.Append( CPPDEFINES=[ "OLDJS" ] )
+    env.Append( CPPDEFINES=[ "_UNICODE" ] )
+    env.Append( CPPDEFINES=[ "UNICODE" ] )
 
     winSDKHome = findVersion( [ "C:/Program Files/Microsoft SDKs/Windows/", "C:/Program Files (x86)/Microsoft SDKs/Windows/" ] ,
                               [ "v6.0" , "v6.0a" , "v6.1", "v7.0A" ] )
@@ -613,7 +626,7 @@ elif "win32" == os.sys.platform:
     # some warnings we don't like:
     env.Append( CPPFLAGS=" /wd4355 /wd4800 /wd4267 /wd4244 " )
     
-    env.Append( CPPDEFINES=["WIN32","_CONSOLE","_CRT_SECURE_NO_WARNINGS","HAVE_CONFIG_H","PCRE_STATIC","_UNICODE","UNICODE","SUPPORT_UCP","SUPPORT_UTF8,PSAPI_VERSION=1" ] )
+    env.Append( CPPDEFINES=["WIN32","_CONSOLE","_CRT_SECURE_NO_WARNINGS","HAVE_CONFIG_H","PCRE_STATIC","SUPPORT_UCP","SUPPORT_UTF8,PSAPI_VERSION=1" ] )
 
     #env.Append( CPPFLAGS='  /Yu"pch.h" ' ) # this would be for pre-compiled headers, could play with it later
 
@@ -638,6 +651,10 @@ elif "win32" == os.sys.platform:
         env.Append( CPPFLAGS=' /Fd"mongod.pdb" ' )
         env.Append( LINKFLAGS=" /debug " )
 
+    if os.path.exists("../readline/lib") :
+        env.Append( LIBPATH=["../readline/lib"] )
+        env.Append( CPPPATH=["../readline/include"] )
+
     if force64 and os.path.exists( boostDir + "/lib/vs2010_64" ):
         env.Append( LIBPATH=[ boostDir + "/lib/vs2010_64" ] )
     elif not force64 and os.path.exists( boostDir + "/lib/vs2010_32" ):
@@ -647,9 +664,13 @@ elif "win32" == os.sys.platform:
 
     if force64:
         env.Append( LIBPATH=[ winSDKHome + "/Lib/x64" ] )
-        #env.Append( LINKFLAGS=" /NODEFAULTLIB:MSVCPRT  /NODEFAULTLIB:MSVCRT " )
     else:
         env.Append( LIBPATH=[ winSDKHome + "/Lib" ] )
+
+    if release:
+        env.Append( LINKFLAGS=" /NODEFAULTLIB:MSVCPRT  /NODEFAULTLIB:MSVCRTD " )
+    else:
+        env.Append( LINKFLAGS=" /NODEFAULTLIB:MSVCPRT  /NODEFAULTLIB:MSVCRT  " )
 
     def pcreFilter(x):
         name = x.name
@@ -903,7 +924,7 @@ def doConfigure( myenv , needPcre=True , shell=False ):
         else:
             print( "WARNING: old version of boost - you should consider upgrading" )
 
-    # this will add it iff it exists and works
+    # this will add it if it exists and works
     myCheckLib( [ "boost_system" + boostCompiler + "-mt" + boostVersion ,
                   "boost_system" + boostCompiler + boostVersion ] )
 
@@ -940,13 +961,19 @@ def doConfigure( myenv , needPcre=True , shell=False ):
 
         # see http://www.mongodb.org/pages/viewpageattachments.action?pageId=12157032
         J = [ "mozjs" , "js", "js_static" ]
-        if windows and msarch == "amd64":
-            if release:
-                J = [ "js64r", "js", "mozjs" , "js_static" ]
+        if windows:
+            if msarch == "amd64":
+                if release:
+                    J = [ "js64r", "js", "mozjs" , "js_static" ]
+                else:
+                    J = "js64d"
+                    print( "looking for js64d.lib for spidermonkey. (available at mongodb.org prebuilt)" );
             else:
-                J = "js64d"
-                print( "will use js64d.lib for spidermonkey. (available at mongodb.org prebuilt.)" );
-
+                if release:
+                    J = [ "js32r", "js", "mozjs" , "js_static" ]
+                else:
+                    J = [ "js32d", "js", "mozjs" , "js_static" ]
+                
         myCheckLib( J , True )
         mozHeader = "js"
         if bigLibString(myenv).find( "mozjs" ) >= 0:
@@ -974,18 +1001,22 @@ def doConfigure( myenv , needPcre=True , shell=False ):
                 myCheckLib( "ncurses" , True )
             else:
                 myenv.Append( LINKFLAGS=" /usr/lib/libreadline.dylib " )
+        elif openbsd:
+            myenv.Append( CPPDEFINES=[ "USE_READLINE" ] )
+            myCheckLib( "termcap" , True )
+            myCheckLib( "readline" , True )
         elif myCheckLib( "readline" , release and nix , staticOnly=release ):
             myenv.Append( CPPDEFINES=[ "USE_READLINE" ] )
             myCheckLib( "ncurses" , staticOnly=release )
             myCheckLib( "tinfo" , staticOnly=release )
         else:
-            print( "warning: no readline, shell will be a bit ugly" )
+            print( "\n*** warning: no readline library, mongo shell will not have nice interactive line editing ***\n" )
 
         if linux:
             myCheckLib( "rt" , True )
 
     # requires ports devel/libexecinfo to be installed
-    if freebsd:
+    if freebsd or openbsd:
         myCheckLib( "execinfo", True )
         env.Append( LIBS=[ "execinfo" ] )
 
@@ -1112,7 +1143,6 @@ testEnv = env.Clone()
 testEnv.Append( CPPPATH=["../"] )
 testEnv.Prepend( LIBS=[ "mongotestfiles" ] )
 testEnv.Prepend( LIBPATH=["."] )
-
 
 # ----- TARGETS ------
 
@@ -1242,7 +1272,9 @@ elif not onlyServer:
 
 #  ---- RUNNING TESTS ----
 
-testEnv.Alias( "dummySmokeSideEffect", [], [] )
+smokeEnv = testEnv.Clone()
+smokeEnv['ENV']['PATH']=os.environ['PATH']
+smokeEnv.Alias( "dummySmokeSideEffect", [], [] )
 
 smokeFlags = []
 
@@ -1255,10 +1287,10 @@ if 'startMongodSmallOplog' in COMMAND_LINE_TARGETS:
     smokeFlags += ["--small-oplog"]
 
 def addTest(name, deps, actions):
-    testEnv.Alias( name, deps, actions )
-    testEnv.AlwaysBuild( name )
+    smokeEnv.Alias( name, deps, actions )
+    smokeEnv.AlwaysBuild( name )
     # Prevent smoke tests from running in parallel
-    testEnv.SideEffect( "dummySmokeSideEffect", name )
+    smokeEnv.SideEffect( "dummySmokeSideEffect", name )
 
 def addSmoketest( name, deps ):
     addTest(name, deps, [ "python buildscripts/smoke.py " + " ".join(smokeFlags) + ' ' + name ])
@@ -1286,37 +1318,37 @@ if not onlyServer and not noshell:
 # buildscripts/smoke.py, the interface to running the tests has been
 # something like 'scons startMongod <suite>'; startMongod is now a
 # no-op, and should go away eventually.
-testEnv.Alias( "startMongod", [add_exe("mongod")]);
-testEnv.AlwaysBuild( "startMongod" );
-testEnv.SideEffect( "dummySmokeSideEffect", "startMongod" )
+smokeEnv.Alias( "startMongod", [add_exe("mongod")]);
+smokeEnv.AlwaysBuild( "startMongod" );
+smokeEnv.SideEffect( "dummySmokeSideEffect", "startMongod" )
 
-testEnv.Alias( "startMongodSmallOplog", [add_exe("mongod")], [] );
-testEnv.AlwaysBuild( "startMongodSmallOplog" );
-testEnv.SideEffect( "dummySmokeSideEffect", "startMongodSmallOplog" )
+smokeEnv.Alias( "startMongodSmallOplog", [add_exe("mongod")], [] );
+smokeEnv.AlwaysBuild( "startMongodSmallOplog" );
+smokeEnv.SideEffect( "dummySmokeSideEffect", "startMongodSmallOplog" )
 
 def addMongodReqTargets( env, target, source ):
     mongodReqTargets = [ "smokeClient", "smokeJs" ]
     for target in mongodReqTargets:
-        testEnv.Depends( target, "startMongod" )
-        testEnv.Depends( "smokeAll", target )
+        smokeEnv.Depends( target, "startMongod" )
+        smokeEnv.Depends( "smokeAll", target )
 
-testEnv.Alias( "addMongodReqTargets", [], [addMongodReqTargets] )
-testEnv.AlwaysBuild( "addMongodReqTargets" )
+smokeEnv.Alias( "addMongodReqTargets", [], [addMongodReqTargets] )
+smokeEnv.AlwaysBuild( "addMongodReqTargets" )
 
-testEnv.Alias( "smokeAll", [ "smoke", "mongosTest", "smokeClone", "smokeRepl", "addMongodReqTargets", "smokeDisk", "smokeAuth", "smokeSharding", "smokeTool" ] )
-testEnv.AlwaysBuild( "smokeAll" )
+smokeEnv.Alias( "smokeAll", [ "smoke", "mongosTest", "smokeClone", "smokeRepl", "addMongodReqTargets", "smokeDisk", "smokeAuth", "smokeSharding", "smokeTool" ] )
+smokeEnv.AlwaysBuild( "smokeAll" )
 
 def addMongodReqNoJsTargets( env, target, source ):
     mongodReqTargets = [ "smokeClient" ]
     for target in mongodReqTargets:
-        testEnv.Depends( target, "startMongod" )
-        testEnv.Depends( "smokeAllNoJs", target )
+        smokeEnv.Depends( target, "startMongod" )
+        smokeEnv.Depends( "smokeAllNoJs", target )
 
-testEnv.Alias( "addMongodReqNoJsTargets", [], [addMongodReqNoJsTargets] )
-testEnv.AlwaysBuild( "addMongodReqNoJsTargets" )
+smokeEnv.Alias( "addMongodReqNoJsTargets", [], [addMongodReqNoJsTargets] )
+smokeEnv.AlwaysBuild( "addMongodReqNoJsTargets" )
 
-testEnv.Alias( "smokeAllNoJs", [ "smoke", "mongosTest", "addMongodReqNoJsTargets" ] )
-testEnv.AlwaysBuild( "smokeAllNoJs" )
+smokeEnv.Alias( "smokeAllNoJs", [ "smoke", "mongosTest", "addMongodReqNoJsTargets" ] )
+smokeEnv.AlwaysBuild( "smokeAllNoJs" )
 
 def recordPerformance( env, target, source ):
     from buildscripts import benchmark_tools
@@ -1489,6 +1521,9 @@ if installSetup.clientSrc:
 #lib
 if installSetup.binaries:
     env.Install( installDir + "/" + nixLibPrefix, clientLibName )
+    if GetOption( "sharedclient" ): 
+        env.Install( installDir + "/" + nixLibPrefix, sharedClientLibName )
+
 
 #textfiles
 if installSetup.bannerDir:

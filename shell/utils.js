@@ -18,8 +18,11 @@ friendlyEqual = function( a , b ){
 }
 
 
-doassert = function( msg ){
-    print( "assert: " + msg );
+doassert = function (msg) {
+    if (msg.indexOf("assert") == 0)
+        print(msg);
+    else
+        print("assert: " + msg);
     throw msg;
 }
 
@@ -29,7 +32,7 @@ assert = function( b , msg ){
     if ( b )
         return;
     
-    doassert( "assert failed : " + msg );
+    doassert( msg == undefined ? "assert failed" : "assert failed : " + msg );
 }
 
 assert.automsg = function( b ) {
@@ -341,6 +344,14 @@ Object.keySet = function( o ) {
     return ret;
 }
 
+if ( ! NumberLong.prototype ) {
+    NumberLong.prototype = {}
+}
+
+NumberLong.prototype.tojson = function() {
+    return this.toString();
+}
+
 if ( ! ObjectId.prototype )
     ObjectId.prototype = {}
 
@@ -353,6 +364,14 @@ ObjectId.prototype.tojson = function(){
 }
 
 ObjectId.prototype.isObjectId = true;
+
+ObjectId.prototype.getTimestamp = function(){
+    return new Date(parseInt(this.toString().slice(0,8), 16)*1000);
+}
+
+ObjectId.prototype.equals = function( other){
+    return this.str == other.str;
+}
 
 if ( typeof( DBPointer ) != "undefined" ){
     DBPointer.prototype.fetch = function(){
@@ -526,6 +545,7 @@ if ( typeof _threadInject != "undefined" ){
                                    "jstests/indexb.js",
                                    "jstests/profile1.js",
                                    "jstests/mr3.js",
+                                   "jstests/indexh.js",
                                    "jstests/apitest_db.js"] );
         
         // some tests can't be run in parallel with each other
@@ -642,11 +662,24 @@ tojson = function( x, indent , nolint ){
     case "string": {
         var s = "\"";
         for ( var i=0; i<x.length; i++ ){
-            if ( x[i] == '"' ){
-                s += "\\\"";
+            switch (x[i]){
+                case '"': s += '\\"'; break;
+                case '\\': s += '\\\\'; break;
+                case '\b': s += '\\b'; break;
+                case '\f': s += '\\f'; break;
+                case '\n': s += '\\n'; break;
+                case '\r': s += '\\r'; break;
+                case '\t': s += '\\t'; break;
+
+                default: {
+                    var code = x.charCodeAt(i);
+                    if (code < 0x20){
+                        s += (code < 0x10 ? '\\u000' : '\\u00') + code.toString(16);
+                    } else {
+                        s += x[i];
+                    }
+                }
             }
-            else
-                s += x[i];
         }
         return s + "\"";
     }
@@ -806,15 +839,27 @@ shellHelper = function( command , rest , shouldPrint ){
 }
 
 help = shellHelper.help = function (x) {
+    if (x == "connect") {
+        print("\nNormally one specifies the server on the mongo shell command line.  Run mongo --help to see those options.");
+        print("Additional connections may be opened:\n");
+        print("    var x = new Mongo('host[:port]');");
+        print("    var mydb = x.getDB('mydb');");
+        print("  or");
+        print("    var mydb = connect('host[:port]/mydb');");
+        print("\nNote: the REPL prompt only auto-reports getLastError() for the shell command line connection.\n");
+        return;
+    }
     if (x == "admin") {
         print("\tls([path])                    list files");
         print("\tpwd()                         returns current directory");
         print("\tlistFiles([path])             returns file list");
         print("\thostname()                    returns name of this host");
+        print("\tcat(fname)                    returns contents of text file as a string");
         print("\tremoveFile(f)                 delete a file");
         print("\tload(jsfilename)              load and execute a .js file");
         print("\trun(program[, args...])       spawn a program and wait for its completion");
         print("\tsleep(m)                      sleep m milliseconds");
+        print("\tgetMemInfo()                  diagnostic");
         return;
     }
     if (x == "test") {
@@ -827,13 +872,14 @@ help = shellHelper.help = function (x) {
         print("\t                              returns a connection to the new server");
         return;
     }
+    print("\t" + "help connect                 connecting to a db");
     print("\t" + "help admin                   misc shell commands");
     print("\t" + "show dbs                     show database names");
     print("\t" + "show collections             show collections in current database");
     print("\t" + "show users                   show users in current database");
     print("\t" + "show profile                 show most recent system.profile entries with time >= 1ms");
     print("\t" + "use <db name>                set current database to <db name>");
-    print("\t" + "db.help()                    help on DB methods");
+    print("\t" + "db.help()                    help on db methods");
     print("\t" + "db.foo.help()                help on collection methods");
     print("\t" + "db.foo.find()                list objects in collection foo");
     print("\t" + "db.foo.find( { a : 1 } )     list objects in foo where a == 1");

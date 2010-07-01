@@ -7,7 +7,7 @@ types =  [
     { name : "double" , values : [ 1.2 , 3.5 , 4.5 , 4.6 , 6.7 , 9.9 ] , keyfield : "a" } ,
     { name : "date" , values : [ new Date( 1000000 ) , new Date( 2000000 ) , new Date( 3000000 ) , new Date( 4000000 ) , new Date( 5000000 ) , new Date( 6000000 )  ] , keyfield : "a" } ,
     { name : "string_id" , values : [ "allan" , "bob" , "eliot" , "joe" , "mark" , "sara" ] , keyfield : "_id" },
-    { name : "embedded" , values : [ "allan" , "bob" , "eliot" , "joe" , "mark" , "sara" ] , keyfield : "a.b" } ,
+    { name : "embedded 1" , values : [ "allan" , "bob" , "eliot" , "joe" , "mark" , "sara" ] , keyfield : "a.b" } ,
     { name : "embedded 2" , values : [ "allan" , "bob" , "eliot" , "joe" , "mark" , "sara" ] , keyfield : "a.b.c" } ,
     { name : "object" , values : [ {a:1, b:1.2}, {a:1, b:3.5}, {a:1, b:4.5}, {a:2, b:1.2}, {a:2, b:3.5}, {a:2, b:4.5} ] , keyfield : "o" } ,
     { name : "oid_id" , values : [ ObjectId() , ObjectId() , ObjectId() , ObjectId() , ObjectId() , ObjectId() ] , keyfield : "_id" } ,
@@ -87,6 +87,11 @@ for ( var i=0; i<types.length; i++ ){
     assert.eq( 6 , c.find().sort( makeObjectDotted( 1 ) ).toArray().length , curT.name + " total count sorted" );
     
     assert.eq( 6 , c.find().sort( makeObjectDotted( 1 ) ).count() , curT.name + " total count with count()" );
+
+    assert.eq( 2 , c.find({$or:[makeObjectDotted(curT.values[2]), makeObjectDotted(curT.values[4])]}).count() , curT.name + " $or count()" );
+    assert.eq( 2 , c.find({$or:[makeObjectDotted(curT.values[2]), makeObjectDotted(curT.values[4])]}).itcount() , curT.name + " $or itcount()" );
+    assert.eq( 4 , c.find({$nor:[makeObjectDotted(curT.values[2]), makeObjectDotted(curT.values[4])]}).count() , curT.name + " $nor count()" );
+    assert.eq( 4 , c.find({$nor:[makeObjectDotted(curT.values[2]), makeObjectDotted(curT.values[4])]}).itcount() , curT.name + " $nor itcount()" );
 
     var stats = c.stats();
     assert.eq( 6 , stats.count , curT.name + " total count with stats()" );

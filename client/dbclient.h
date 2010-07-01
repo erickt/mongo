@@ -64,7 +64,10 @@ namespace mongo {
         /** Stream the data down full blast in multiple "more" packages, on the assumption that the client 
             will fully read all data queried.  Faster when you are pulling a lot of data and know you want to 
             pull it all down.  Note: it is not allowed to not read all the data unless you close the connection.
-            */
+
+            Use the query( boost::function<void(const BSONObj&)> f, ... ) version of the connection's query() 
+            method, and it will take care of all the details for you.
+        */
         QueryOption_Exhaust = 1 << 6
 
     };
@@ -76,6 +79,86 @@ namespace mongo {
         /** Update multiple documents (if multiple documents match query expression). 
            (Default is update a single document and stop.) */
         UpdateOption_Multi = 1 << 1
+    };
+
+    class DBClientBase;
+
+    class ConnectionString {
+    public:
+        enum ConnectionType { MASTER , SET , SYNC };
+        
+        ConnectionString( const HostAndPort& server ){
+            _type = MASTER;
+            _servers.push_back( server );
+            _finishInit();
+        }
+
+        ConnectionString( ConnectionType type , const vector<HostAndPort>& servers )
+            : _type( type ) , _servers( servers ){
+            _finishInit();
+        }
+        
+        ConnectionString( ConnectionType type , const string& s ){
+            _type = type;
+            _fillServers( s );
+            
+            switch ( _type ){
+            case MASTER:
+                assert( _servers.size() == 1 );
+                break;
+            default:
+                assert( _servers.size() > 0 );
+            }
+            
+            _finishInit();
+        }
+
+        ConnectionString( const string& s , ConnectionType favoredMultipleType ){
+            _fillServers( s );
+            if ( _servers.size() == 1 ){
+                _type = MASTER;
+            }
+            else {
+                _type = favoredMultipleType;
+                assert( _type != MASTER );
+            }
+            _finishInit();
+        }
+        
+        string toString() const {
+            return _string;
+        }
+        
+        operator string() const {
+            return toString();
+        }
+        
+        DBClientBase* connect( string& errmsg ) const;
+
+    private:
+        
+        void _fillServers( string s ){
+            string::size_type idx;
+            while ( ( idx = s.find( ',' ) ) != string::npos ){
+                _servers.push_back( s.substr( 0 , idx ) );
+                s = s.substr( idx + 1 );
+            }
+            _servers.push_back( s );
+        }
+        
+        void _finishInit(){
+            stringstream ss;
+            for ( unsigned i=0; i<_servers.size(); i++ ){
+                if ( i > 0 )
+                    ss << ",";
+                ss << _servers[i].toString();
+            }
+            _string = ss.str();
+        }
+
+        ConnectionType _type;
+        vector<HostAndPort> _servers;
+        string _string;
     };
 
     /**
@@ -213,7 +296,7 @@ namespace mongo {
         virtual bool call( Message &toSend, Message &response, bool assertOk=true ) = 0;
         virtual void say( Message &toSend ) = 0;
         virtual void sayPiggyBack( Message &toSend ) = 0;
-        virtual void checkResponse( const string &data, int nReturned ) {}
+        virtual void checkResponse( const char* data, int nReturned ) {}
 
         /* used by QueryOption_Exhaust.  To use that your subclass must implement this. */
         virtual void recv( Message& m ) { assert(false); }
@@ -315,17 +398,17 @@ namespace mongo {
 
            If the collection already exists, no action occurs.
 
-           ns:     fully qualified collection name
-            size:   desired initial extent size for the collection.
-                   Must be <= 1000000000 for normal collections.
-        		   For fixed size (capped) collections, this size is the total/max size of the
-        		   collection.
-           capped: if true, this is a fixed size collection (where old data rolls out).
-           max:    maximum number of objects if capped (optional).
+           @param ns     fully qualified collection name
+           @param size   desired initial extent size for the collection.
+                         Must be <= 1000000000 for normal collections.
+                         For fixed size (capped) collections, this size is the total/max size of the
+                         collection.
+           @param capped if true, this is a fixed size collection (where old data rolls out).
+           @param max    maximum number of objects if capped (optional).
 
            returns true if successful.
         */
-        bool createCollection(const string &ns, unsigned size = 0, bool capped = false, int max = 0, BSONObj *info = 0);
+        bool createCollection(const string &ns, long long size = 0, bool capped = false, int max = 0, BSONObj *info = 0);
 
         /** Get error result from the last operation on this connection. 
             @return error message text, or empty string if no error.

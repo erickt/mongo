@@ -29,7 +29,7 @@
 #include "../helpers/dblogger.h"
 #include "connections.h"
 #include "../../util/unittest.h"
-
+#include "../instance.h"
 
 namespace mongo { 
 
@@ -59,7 +59,11 @@ namespace mongo {
                 result.append("mismatch", true);
                 return false;
             }
+
             result.append("rs", true);
+            if( cmdObj["checkEmpty"].trueValue() ) { 
+                result.append("hasData", haveDatabases());
+            }
             if( theReplSet == 0 ) { 
                 errmsg = "still initializing";
                 return false;
@@ -72,17 +76,19 @@ namespace mongo {
             }
             result.append("set", theReplSet->name());
             result.append("state", theReplSet->state());
+            result.appendDate("opTime", theReplSet->lastOpTimeWritten.asDate());
             int v = theReplSet->config().version;
             result.append("v", v);
             if( v > cmdObj["v"].Int() )
                 result << "config" << theReplSet->config().asBson();
+
             return true;
         }
     } cmdReplSetHeartbeat;
 
     /* throws dbexception */
-    bool requestHeartbeat(string setName, string memberFullName, BSONObj& result, int myCfgVersion, int& theirCfgVersion) { 
-        BSONObj cmd = BSON( "replSetHeartbeat" << setName << "v" << myCfgVersion << "pv" << 1 );
+    bool requestHeartbeat(string setName, string memberFullName, BSONObj& result, int myCfgVersion, int& theirCfgVersion, bool checkEmpty) { 
+        BSONObj cmd = BSON( "replSetHeartbeat" << setName << "v" << myCfgVersion << "pv" << 1 << "checkEmpty" << checkEmpty );
         ScopedConn conn(memberFullName);
         return conn->runCommand("admin", cmd, result);
     }
@@ -96,6 +102,8 @@ namespace mongo {
 
         string name() { return "ReplSetHealthPoll"; }
         void doWork() { 
+            cout << "TEMP healthpool dowork " << endl;
+
             HeartbeatInfo mem = m;
             HeartbeatInfo old = mem;
             try { 
@@ -115,6 +123,8 @@ namespace mongo {
                     }
                     mem.health = 1.0;
                     mem.lastHeartbeatMsg = "";
+                    if( info.hasElement("opTime") )
+                        mem.opTime = info["opTime"].Date();
 
                     be cfg = info["config"];
                     if( cfg.ok() ) {
@@ -132,6 +142,7 @@ namespace mongo {
                 down(mem, "connect/transport error");             
             }
             m = mem;
+            cout << "TEMP sending msgupdatehbinfo" << mem.hbstate << endl;
             theReplSet->mgr->send( boost::bind(&ReplSet::msgUpdateHBInfo, theReplSet, mem) );
 
             static time_t last = 0;
@@ -163,6 +174,7 @@ namespace mongo {
         Member* m = _members.head();
         while( m ) {
             ReplSetHealthPoll *task = new ReplSetHealthPoll(m->h(), m->hbinfo());
+            cout << "TEMP starting hb thread " << m->h().toString() << endl;
             task::repeat(shared_ptr<task::Task>(task), 2000);
             m = m->next();
         }

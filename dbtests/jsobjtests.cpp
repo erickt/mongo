@@ -386,6 +386,30 @@ namespace JsobjTests {
             }
         };
 
+        class NullString {
+        public:
+            void run() {
+                BSONObjBuilder b;
+                b.append("a", "a\0b", 4);
+                b.append("b", string("a\0b", 3));
+                b.appendAs(b.asTempObj()["a"], "c");
+                BSONObj o = b.obj();
+
+                stringstream ss;
+                ss << 'a' << '\0' << 'b';
+
+                ASSERT_EQUALS(o["a"].valuestrsize(), 3+1);
+                ASSERT_EQUALS(o["a"].str(), ss.str());
+
+                ASSERT_EQUALS(o["b"].valuestrsize(), 3+1);
+                ASSERT_EQUALS(o["b"].str(), ss.str());
+
+                ASSERT_EQUALS(o["c"].valuestrsize(), 3+1);
+                ASSERT_EQUALS(o["c"].str(), ss.str());
+            }
+
+        };
+
         namespace Validation {
 
             class Base {
@@ -1512,6 +1536,33 @@ namespace JsobjTests {
         }
     };
 
+    class BSONFieldTests {
+    public:
+        void run(){
+            {
+                BSONField<int> x("x");
+                BSONObj o = BSON( x << 5 );
+                ASSERT_EQUALS( BSON( "x" << 5 ) , o );
+            }
+
+            {
+                BSONField<int> x("x");
+                BSONObj o = BSON( x.make(5) );
+                ASSERT_EQUALS( BSON( "x" << 5 ) , o );
+            }
+
+            {
+                BSONField<int> x("x");
+                BSONObj o = BSON( x(5) );
+                ASSERT_EQUALS( BSON( "x" << 5 ) , o );
+
+                o = BSON( x.gt(5) );
+                ASSERT_EQUALS( BSON( "x" << BSON( "$gt" << 5 ) ) , o );
+            }
+
+        }
+    };
+
     class All : public Suite {
     public:
         All() : Suite( "jsobj" ){
@@ -1535,6 +1586,7 @@ namespace JsobjTests {
             add< BSONObjTests::AppendIntOrLL >();
             add< BSONObjTests::AppendNumber >();
             add< BSONObjTests::ToStringArray >();
+            add< BSONObjTests::NullString >();
             add< BSONObjTests::Validation::BadType >();
             add< BSONObjTests::Validation::EooBeforeEnd >();
             add< BSONObjTests::Validation::Undefined >();
@@ -1607,6 +1659,7 @@ namespace JsobjTests {
             add< ElementSetTest >();
             add< EmbeddedNumbers >();
             add< BuilderPartialItearte >();
+            add< BSONFieldTests >();
         }
     } myall;
     

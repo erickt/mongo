@@ -18,6 +18,12 @@
 #include "pch.h"
 #include <stdio.h>
 
+#if defined(_WIN32)
+# if defined(USE_READLINE)
+# define USE_READLINE_STATIC
+# endif
+#endif
+
 #ifdef USE_READLINE
 #include <readline/readline.h>
 #include <readline/history.h>
@@ -32,6 +38,7 @@ jmp_buf jbuf;
 #include "utils.h"
 #include "../util/password.h"
 #include "../util/version.h"
+#include "../util/goodies.h"
 
 using namespace std;
 using namespace boost::filesystem;
@@ -45,7 +52,7 @@ string historyFile;
 bool gotInterrupted = 0;
 bool inMultiLine = 0;
 
-#if defined(USE_READLINE) && !defined(__freebsd__) && !defined(_WIN32)
+#if defined(USE_READLINE) && !defined(__freebsd__) && !defined(__openbsd__) && !defined(_WIN32)
 #define CTRLC_HANDLE
 #endif
 
@@ -131,9 +138,16 @@ void shellHistoryDone(){
 #endif
 }
 void shellHistoryAdd( const char * line ){
-    if ( strlen(line) == 0 )
-        return;
 #ifdef USE_READLINE
+    if ( line[0] == '\0' )
+        return;
+
+    // dont record duplicate lines
+    static string lastLine;
+    if (lastLine == line)
+        return;
+    lastLine = line;
+
     if ((strstr(line, ".auth")) == NULL)
         add_history( line );
 #endif
@@ -162,6 +176,7 @@ void killOps() {
 }
 
 void quitNicely( int sig ){
+    mongo::goingAway = true;
     if ( sig == SIGINT && inMultiLine ){
         gotInterrupted = 1;
         return;
@@ -169,6 +184,13 @@ void quitNicely( int sig ){
     if ( sig == SIGPIPE )
         mongo::rawOut( "mongo got signal SIGPIPE\n" );
     killOps();
+    shellHistoryDone();
+    exit(0);
+}
+#else
+void quitNicely( int sig ){
+    mongo::goingAway = true;
+    //killOps();
     shellHistoryDone();
     exit(0);
 }
@@ -193,7 +215,7 @@ char * shellReadline( const char * prompt , int handlesigint = 0 ){
 #endif
 
     char * ret = readline( prompt );
-    signal( SIGINT , quitNicely );
+        signal( SIGINT , quitNicely );
     return ret;
 #else
     printf("%s", prompt); cout.flush();
@@ -523,6 +545,9 @@ int _main(int argc, char* argv[]) {
     mongo::globalScriptEngine->setScopeInitCallback( mongo::shellUtils::initScope );
     auto_ptr< mongo::Scope > scope( mongo::globalScriptEngine->newScope() );    
     shellMainScope = scope.get();
+
+    if( runShell )
+        cout << "type \"help\" for help" << endl;
     
     if ( !script.empty() ) {
         mongo::shellUtils::MongoProgramScope s;
@@ -551,8 +576,6 @@ int _main(int argc, char* argv[]) {
         mongo::shellUtils::MongoProgramScope s;
 
         shellHistoryInit();
-
-        cout << "type \"help\" for help" << endl;
 
         //v8::Handle<v8::Object> shellHelper = baseContext_->Global()->Get( v8::String::New( "shellHelper" ) )->ToObject();
 
@@ -625,6 +648,7 @@ int _main(int argc, char* argv[]) {
         shellHistoryDone();
     }
 
+    mongo::goingAway = true;
     return 0;
 }
 

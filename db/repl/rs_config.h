@@ -25,6 +25,7 @@
 
 namespace mongo { 
 
+    /* singleton config object is stored here */
     const string rsConfigNs = "local.system.replset";
 
     class ReplSetConfig {
@@ -70,7 +71,7 @@ namespace mongo {
         void check() const;
 
         static void receivedNewConfig(BSONObj);
-        void saveConfigLocally(); // to local db
+        void saveConfigLocally(BSONObj comment); // to local db
         string saveConfigEverywhere(); // returns textual info on what happened
 
         BSONObj asBson() const;

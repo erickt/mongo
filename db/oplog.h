@@ -179,14 +179,9 @@ namespace mongo {
             }
         }
         void maybeRelease() {
-            RARELY {
-                CursorId id = _findingStartCursor->cursorid;
-                _findingStartCursor->updateLocation();
-                {
-                    dbtemprelease t;
-                }   
-                _findingStartCursor = ClientCursor::find( id, false );
-            }                                            
+            if ( ! _findingStartCursor->yieldSometimes() ){
+                _findingStartCursor = 0;
+            }
         }
         void init() {
             // Use a ClientCursor here so we can release db mutex while scanning
@@ -204,5 +199,7 @@ namespace mongo {
         }
     };
 
+    void pretouchOperation(const BSONObj& op);
 
+    void applyOperation_inlock(const BSONObj& op);
 }
